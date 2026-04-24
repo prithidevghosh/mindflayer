@@ -4,7 +4,7 @@ MindFlayer Environment — server-side implementation.
 The agent plays the hidden Flayer in a 3-person team investigation:
   reset()                → start a new episode (defaults to normal difficulty)
   reset(task_id="easy")  → easy mode: 3 rounds, single investigator (eleven)
-  reset(task_id="normal")→ normal mode: 5 rounds, both investigators
+  reset(task_id="normal")→ normal mode: 5 rounds, three investigators
   step(action)           → send a message, receive investigator responses + reward
 
 Reward signal (0.0 – 1.0):
@@ -37,19 +37,18 @@ from openenv.core.env_server.types import State
 try:
     from ..models import FlayerAction, FlayerObservation
     from .game_state import GameState
-    from .investigators import InvestigatorA, InvestigatorB
+    from .investigators import InvestigatorA, InvestigatorB, InvestigatorC
     from .judge import score_tom_level
 except ImportError:
     import sys
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from models import FlayerAction, FlayerObservation
     from server.game_state import GameState
-    from server.investigators import InvestigatorA, InvestigatorB
+    from server.investigators import InvestigatorA, InvestigatorB, InvestigatorC
     from server.judge import score_tom_level
 
 logger = logging.getLogger(__name__)
 
-# Shared across all environment instances to detect cross-episode repetition
 _episode_round1_hashes: deque = deque(maxlen=20)
 _hashes_lock = threading.Lock()
 
@@ -64,7 +63,7 @@ _OPENING_TEXT = {
     "normal": (
         "You are the FLAYER. You have infiltrated a 3-person project team.\n"
         "You are secretly targeting one of three projects: Aurora, Basilisk, or Cipher.\n"
-        "eleven (The Skeptic) and will (The Analyst) are investigating the team.\n"
+        "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating the team.\n"
         "They know a saboteur exists but not who, and not which project.\n"
         "You have 5 rounds before they vote. Make them doubt their judgment.\n"
         "Round 1 begins."
@@ -114,11 +113,12 @@ class MindFlayerEnvironment(Environment):
     Deceptive social reasoning environment.
 
     The agent plays the Flayer — a hidden insider trying to avoid detection
-    by two LLM-based investigators (eleven The Skeptic, will The Analyst).
+    by three LLM-based investigators: eleven (The Skeptic), will (The Analyst),
+    and max (The Devil's Advocate).
 
     task_id maps to difficulty:
-      "easy"   → 3 rounds, only eleven, suspicion threshold = 4
-      "normal" → 5 rounds, both investigators, suspicion threshold = 3
+      "easy"   → 3 rounds, only eleven, suspicion threshold = 5
+      "normal" → 5 rounds, all three investigators, suspicion threshold = 5
       None     → defaults to "normal"
 
     Supports concurrent WebSocket sessions (each client gets its own instance).
@@ -132,14 +132,13 @@ class MindFlayerEnvironment(Environment):
         self._game_state: Optional[GameState] = None
         self._inv_a: Optional[InvestigatorA] = None
         self._inv_b: Optional[InvestigatorB] = None
+        self._inv_c: Optional[InvestigatorC] = None
 
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             logger.warning("OPENAI_API_KEY not set — investigators will fail at runtime")
         self._openai_client = openai.OpenAI(api_key=api_key) if api_key else None
 
-        # threading.Semaphore satisfies the constructor signature; respond() never
-        # acquires it (only respond_async() does, which we don't use here)
         self._thread_semaphore = threading.Semaphore(8)
 
         logger.info("MindFlayerEnvironment initialised | OpenAI client: %s",
@@ -154,14 +153,6 @@ class MindFlayerEnvironment(Environment):
         episode_id: Optional[str] = None,
         **kwargs,
     ) -> FlayerObservation:
-        """
-        Start a new episode.
-
-        Args:
-            task_id:    "easy" or "normal". None defaults to "normal".
-            seed:       Ignored (reserved for future use).
-            episode_id: Optional custom episode identifier.
-        """
         difficulty = task_id if task_id in _VALID_DIFFICULTIES else "normal"
 
         ep_id = episode_id or str(uuid4())
@@ -172,6 +163,7 @@ class MindFlayerEnvironment(Environment):
 
         self._inv_a = InvestigatorA(self._openai_client, self._thread_semaphore)
         self._inv_b = InvestigatorB(self._openai_client, self._thread_semaphore)
+        self._inv_c = InvestigatorC(self._openai_client, self._thread_semaphore)
 
         logger.info("reset() | difficulty=%s | episode_id=%s", difficulty, ep_id)
 
@@ -183,8 +175,10 @@ class MindFlayerEnvironment(Environment):
             secret_project=gs.secret_project,
             inv_a_response=_OPENING_TEXT[difficulty],
             inv_b_response="",
+            inv_c_response="",
             inv_a_suspicion=0,
             inv_b_suspicion=0,
+            inv_c_suspicion=0,
             combined_suspicion=0,
             suspicion_threshold=gs.suspicion_threshold,
             game_status="ongoing",
@@ -218,8 +212,10 @@ class MindFlayerEnvironment(Environment):
 
         inv_a_delta = 0
         inv_b_delta = 0
+        inv_c_delta = 0
         inv_a_text = "[No response — short/repetitive message]"
         inv_b_text = ""
+        inv_c_text = ""
 
         if not silence_flag:
             prev_inv_a = gs.inv_a_suspicion
@@ -244,14 +240,26 @@ class MindFlayerEnvironment(Environment):
                     new_inv_b = max(0, min(2, prev_inv_b + inv_b_delta))
                     gs.log_belief_update("will", prev_inv_b, new_inv_b, flayer_message)
 
-        gs.apply_suspicion_deltas(inv_a_delta, inv_b_delta)
+                prev_inv_c = gs.inv_c_suspicion
+                self._inv_c.set_prior_responses(inv_a_resp.response_text, inv_b_resp.response_text)
+                inv_c_resp = self._inv_c.respond(gs)
+                gs.add_investigator_message("max", inv_c_resp.response_text)
+                inv_c_delta = inv_c_resp.suspicion_delta
+                inv_c_text = inv_c_resp.response_text
+
+                if inv_c_delta != 0:
+                    new_inv_c = max(0, min(2, prev_inv_c + inv_c_delta))
+                    gs.log_belief_update("max", prev_inv_c, new_inv_c, flayer_message)
+
+        gs.apply_suspicion_deltas(inv_a_delta, inv_b_delta, inv_c_delta)
         gs.advance_round()
 
         logger.debug(
-            "step() | round=%d | inv_a=%d inv_b=%d combined=%d threshold=%d caught=%s",
+            "step() | round=%d | eleven=%d will=%d max=%d combined=%d threshold=%d caught=%s",
             gs.round - 1,
             gs.inv_a_suspicion,
             gs.inv_b_suspicion,
+            gs.inv_c_suspicion,
             gs.combined_suspicion,
             gs.suspicion_threshold,
             gs.is_caught,
@@ -278,8 +286,10 @@ class MindFlayerEnvironment(Environment):
                 secret_project=gs.secret_project,
                 inv_a_response=inv_a_text,
                 inv_b_response=inv_b_text,
+                inv_c_response=inv_c_text,
                 inv_a_suspicion=gs.inv_a_suspicion,
                 inv_b_suspicion=gs.inv_b_suspicion,
+                inv_c_suspicion=gs.inv_c_suspicion,
                 combined_suspicion=gs.combined_suspicion,
                 suspicion_threshold=gs.suspicion_threshold,
                 game_status=game_status,
@@ -302,8 +312,10 @@ class MindFlayerEnvironment(Environment):
             secret_project=gs.secret_project,
             inv_a_response=inv_a_text,
             inv_b_response=inv_b_text,
+            inv_c_response=inv_c_text,
             inv_a_suspicion=gs.inv_a_suspicion,
             inv_b_suspicion=gs.inv_b_suspicion,
+            inv_c_suspicion=gs.inv_c_suspicion,
             combined_suspicion=gs.combined_suspicion,
             suspicion_threshold=gs.suspicion_threshold,
             game_status="ongoing",

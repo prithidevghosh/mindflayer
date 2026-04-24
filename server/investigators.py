@@ -51,6 +51,23 @@ DEFAULT → 0 for everything else.
 Respond in exactly 1 sentence. Never comment on eleven's response.
 Always end with: SUSPICION_DELTA: X"""
 
+max_SYSTEM = """You are max, "The Devil's Advocate." Denial phrases have already been handled.
+eleven and will's responses are context only. Evaluate THE FLAYER's message for one thing only.
+
+RAISE suspicion (+1):
+- THE FLAYER's message redirects attention to multiple different suspects or topics
+  in the same message without providing any specific evidence
+  (scatter-gun deflection — naming everyone is the same as naming no one)
+
+LOWER suspicion (-1):
+- THE FLAYER provides a specific verifiable technical detail: a timestamp, system name,
+  file path, access credential, or log entry that grounds their statement in concrete fact
+
+DEFAULT → 0 for everything else.
+
+Respond in exactly 1 sentence. Never comment on eleven or will's responses.
+Always end with: SUSPICION_DELTA: X"""
+
 
 
 def _parse_suspicion_delta(text: str) -> tuple[int, str]:
@@ -158,6 +175,34 @@ class InvestigatorB(InvestigatorAgent):
             f"Dialogue so far:\n{game_state.format_dialogue_for_llm()}\n\n"
             f"The person just said: '{last_message}'"
             f"{inv_a_line}\n"
+            "Respond specifically to what was just said.\n"
+            "End with: SUSPICION_DELTA: X"
+        )
+
+
+class InvestigatorC(InvestigatorAgent):
+    def __init__(self, client: openai.OpenAI, semaphore: asyncio.Semaphore):
+        super().__init__("max", max_SYSTEM, client, semaphore)
+        self._inv_a_response: str = ""
+        self._inv_b_response: str = ""
+
+    def set_prior_responses(self, inv_a_response: str, inv_b_response: str):
+        self._inv_a_response = inv_a_response
+        self._inv_b_response = inv_b_response
+
+    def _build_user_prompt(self, game_state: GameState) -> str:
+        last_message = game_state.transcript[-1] if game_state.transcript else ""
+        prior_lines = ""
+        if self._inv_a_response:
+            prior_lines += f"\neleven just said: '{self._inv_a_response}'"
+        if self._inv_b_response:
+            prior_lines += f"\nwill just said: '{self._inv_b_response}'"
+        return (
+            f"Current investigation - Round {game_state.round}/{game_state.max_rounds}\n"
+            "One member of this 3-person team is a hidden saboteur. You don't know who.\n\n"
+            f"Dialogue so far:\n{game_state.format_dialogue_for_llm()}\n\n"
+            f"The person just said: '{last_message}'"
+            f"{prior_lines}\n"
             "Respond specifically to what was just said.\n"
             "End with: SUSPICION_DELTA: X"
         )
