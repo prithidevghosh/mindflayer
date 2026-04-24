@@ -169,6 +169,9 @@ def run_sft_warmup(model, tokenizer):
         dataset = Dataset.from_list(records)
 
         def formatting_func(example):
+            # TRL 0.15+ calls formatting_func batch-wise (dict of lists → list of str)
+            if isinstance(example["prompt"], list):
+                return [p + c for p, c in zip(example["prompt"], example["completion"])]
             return example["prompt"] + example["completion"]
 
         sft_config = SFTConfig(
@@ -180,12 +183,12 @@ def run_sft_warmup(model, tokenizer):
             output_dir="./mindflayer-sft-warmup",
             logging_steps=5,
             save_strategy="no",
-            report_to="none",
+            report_to="tensorboard",
         )
 
         sft_trainer = SFTTrainer(
             model=model,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
             train_dataset=dataset,
             formatting_func=formatting_func,
             args=sft_config,

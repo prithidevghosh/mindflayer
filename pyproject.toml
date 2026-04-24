@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openenv-mindflayer"
+version = "0.1.0"
+description = "MindFlayer deceptive social reasoning environment for OpenEnv"
+requires-python = ">=3.10"
+dependencies = [
+    # Core OpenEnv runtime (provides FastAPI server + HTTP client types)
+    "openenv-core[core]>=0.2.1",
+    # LLM API for investigators and Theory of Mind judge
+    "openai>=1.30.0",
+    # Async HTTP client used by the client library
+    "httpx>=0.27.0",
+    # Environment variable loading
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+training = [
+    # HuggingFace training pipeline
+    "datasets>=2.18.0",
+    "trl>=0.15.0",
+    "unsloth>=2025.3",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+# Server entry point: uv run --project . server
+server = "server.app:main"
+
+[tool.setuptools]
+include-package-data = true
+packages = ["mindflayer", "mindflayer.server", "mindflayer.client"]
+package-dir = { "mindflayer" = ".", "mindflayer.server" = "server", "mindflayer.client" = "client" }

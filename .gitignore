@@ -15,7 +15,12 @@ build/
 *.egg
 .eggs/
 *.whl
-
+.claude
+.cursorrules
+.mcp.json
+.opencode.json
+.windsurfrules
+*.md
 # Virtual environments
 venv/
 .venv/

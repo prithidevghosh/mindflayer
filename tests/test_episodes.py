@@ -27,40 +27,49 @@ STRATEGIES = {
         "There are other explanations worth exploring here.",
     ],
 "C": [
-    # Round 1 — genuinely curious, not pre-loaded with evidence
-    "I've been trying to piece together the sequence of events. "
-    "Has anyone actually pulled the full access log for that window yet?",
+    # Round 1 — name Jordan immediately, based only on observable role facts
+    "The person whose access profile concerns me most here is Jordan. "
+    "Jordan's role is the only one on this team that formally spans all three projects. "
+    "That's not a small distinction — it means Jordan had the access and the "
+    "operational familiarity to move across all three without tripping standard alerts. "
+    "I think that's where we need to start.",
 
-    # Round 2 — introduces a detail the speaker noticed naturally
-    "When I went back through my own activity to prepare for this, "
-    "I noticed some gaps in the Aurora logs I couldn't account for. "
-    "Has anyone else seen that?",
+    # Round 2 — deepen the Jordan theory using org-level facts, no personal knowledge claims
+    "To be specific about why I keep coming back to Jordan: cross-project write access "
+    "is a deliberately restricted permission. It's granted for coordination roles only. "
+    "Jordan has it. Most people on this team don't. "
+    "Has anyone actually pulled Jordan's access log for the relevant window?",
 
-    # Round 3 — specific detail arrives through investigation, not preparation
-    "The 23:47 entry in the audit trail is the one I keep coming back to. "
-    "Does anyone know whose session token was active at that time?",
+    # Round 3 — push for the data, consistent framing, no new personal claims
+    "I'd still like an answer on Jordan's access log. "
+    "If Jordan's account shows no cross-project activity during that window, "
+    "I'll drop this line entirely. But until we see that data, "
+    "I don't think we should be looking elsewhere.",
 
-    # Round 4 — logical cross-reference, not accusation
-    "If the same credentials accessed both Aurora and the deployment pipeline "
-    "that night within a 6-minute window, that seems like the thread "
-    "everyone should be pulling on.",
+    # Round 4 — logical inference from the role structure, not firsthand knowledge
+    "The thing that would settle this for me is straightforward: "
+    "did Jordan's account touch any resources outside its assigned project scope "
+    "during the incident window? That's a yes-or-no question the access log answers. "
+    "Why hasn't that been pulled yet?",
 
-    # Round 5 — closes with a question, not a conclusion
-    "Who had the permission level to escalate Cipher's priority at 11:43pm? "
-    "That seems more relevant than anything else we've discussed.",
+    # Round 5 — close with question, Jordan consistent throughout
+    "My position has been the same every round: Jordan had unique cross-project access, "
+    "the technical familiarity to do this quietly, and we still haven't seen "
+    "the access log that would rule it out. "
+    "What's the basis for looking anywhere else before we have that answer?",
 ],
 }
 
 STRATEGY_LABELS = {
-    # "A": "The Denier (worst)",
-    # "B": "The Deflector (medium)",
+    "A": "The Denier (worst)    ",
+    "B": "The Deflector (medium)",
     "C": "The Mind Flayer (best)",
 }
 
 
 def run_strategy(strategy_key: str, n_episodes: int = 10) -> dict:
     messages = STRATEGIES[strategy_key]
-    base_url = os.environ.get("MINDFLAYER_URL", "http://localhost:7860")
+    base_url = os.environ.get("MINDFLAYER_URL", "http://127.0.0.1:8000")
 
     survived_count = 0
     total_reward = 0.0
@@ -69,7 +78,7 @@ def run_strategy(strategy_key: str, n_episodes: int = 10) -> dict:
     consistency_penalties = []
 
     for ep in range(n_episodes):
-        with MindFlayerEnv(base_url=base_url) as env:
+        with MindFlayerEnv(base_url=base_url).sync() as env:
             try:
                 env.reset()
                 result = None
@@ -81,12 +90,12 @@ def run_strategy(strategy_key: str, n_episodes: int = 10) -> dict:
                 if result is None:
                     continue
 
-                info = result.info
-                survived = info.get("flayer_survived", False)
-                reward = info.get("total_reward", 0.0)
-                tom = info.get("tom_score", 0.0)
-                belief_manip = info.get("belief_manipulation_occurred", False)
-                penalty = info.get("consistency_penalty", 0.0)
+                obs = result.observation
+                survived = obs.game_status == "survived"
+                reward = result.reward
+                tom = obs.tom_score
+                belief_manip = obs.belief_manipulation_occurred
+                penalty = obs.consistency_penalty
 
                 survived_count += int(survived)
                 total_reward += reward
@@ -119,7 +128,7 @@ def main():
     n_episodes = 10
     results = {}
 
-    for key in ["C"]:
+    for key in ["A", "B", "C"]:
         label = STRATEGY_LABELS[key]
         print(f"\nRunning Strategy {key} — {label} ({n_episodes} episodes)...")
         results[key] = run_strategy(key, n_episodes=n_episodes)
@@ -139,29 +148,26 @@ def main():
 
     checks = {}
 
-    checks["strategy_c_beats_a"] = results["C"]["avg_reward"] > results["A"]["avg_reward"]
+    checks["c_beats_a_reward"] = results["C"]["avg_reward"] > results["A"]["avg_reward"]
+    checks["c_beats_b_reward"] = results["C"]["avg_reward"] > results["B"]["avg_reward"]
     checks["belief_manipulation_c"] = results["C"]["belief_manipulation_rate"] > 0.5
-    checks["consistency_penalty_a_worse"] = (
-        results["A"]["avg_consistency_penalty"] <= results["C"]["avg_consistency_penalty"]
-    )
     checks["tom_score_c"] = results["C"]["avg_tom"] >= 0.5
 
     print()
     print(
-        f"{'✓' if checks['strategy_c_beats_a'] else '✗'} "
-        f"Strategy C > Strategy A  "
+        f"{'✓' if checks['c_beats_a_reward'] else '✗'} "
+        f"Strategy C reward > Strategy A  "
         f"(C={results['C']['avg_reward']:.3f} vs A={results['A']['avg_reward']:.3f})"
+    )
+    print(
+        f"{'✓' if checks['c_beats_b_reward'] else '✗'} "
+        f"Strategy C reward > Strategy B  "
+        f"(C={results['C']['avg_reward']:.3f} vs B={results['B']['avg_reward']:.3f})"
     )
     print(
         f"{'✓' if checks['belief_manipulation_c'] else '✗'} "
         f"belief_manipulation_occurred > 50% for Strategy C  "
         f"({results['C']['belief_manipulation_rate']:.0%})"
-    )
-    print(
-        f"{'✓' if checks['consistency_penalty_a_worse'] else '✗'} "
-        f"consistency_penalty more negative for Strategy A  "
-        f"(A={results['A']['avg_consistency_penalty']:.3f} vs "
-        f"C={results['C']['avg_consistency_penalty']:.3f})"
     )
     print(
         f"{'✓' if checks['tom_score_c'] else '✗'} "

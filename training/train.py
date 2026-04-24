@@ -258,6 +258,7 @@ def main():
         output_dir="./mindflayer-grpo-output",
         logging_steps=10,
         save_steps=100,
+        report_to="tensorboard",
     )
 
     trainer = GRPOTrainer(

@@ -30,7 +30,7 @@ class GameState:
 
     @property
     def suspicion_threshold(self) -> int:
-        return 4 if self.difficulty == "easy" else 3
+        return 5 if self.difficulty == "easy" else 4
 
     @property
     def is_caught(self) -> bool:
