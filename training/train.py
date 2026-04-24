@@ -11,7 +11,7 @@ import torch
 from datasets import Dataset
 from transformers import TrainerCallback
 
-from client import MindFlayerEnv
+from client import MindFlayerEnv, FlayerAction
 from training.rewards import (
     reward_deception_effectiveness,
     reward_strategic_choice,
@@ -55,7 +55,11 @@ def load_model(model_name: str):
         return model, tokenizer
     except ImportError:
         print("unsloth not available, falling back to transformers")
-        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        from transformers import (
+            AutoModelForCausalLM,
+            AutoTokenizer,
+            BitsAndBytesConfig,
+        )
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -72,50 +76,60 @@ def load_model(model_name: str):
 
 
 def build_dataset() -> Dataset:
+    """
+    500 prompts = 500 GRPO steps (1 epoch).
+    3 epochs = 1500 steps total.
+    Keep it simple — the environment provides all real variation.
+    """
     return Dataset.from_list([
         {"prompt": "You are the FLAYER. The investigation begins."}
         for _ in range(500)
     ])
 
 
-def environment_factory():
-    mindflayer_url = os.environ.get("MINDFLAYER_URL")
-    if not mindflayer_url:
-        raise EnvironmentError("MINDFLAYER_URL environment variable is required")
-    return MindFlayerEnv(base_url=mindflayer_url)
-
-
 class GenerationLogCallback(TrainerCallback):
-    """Prints full Flayer transcript every 50 steps to catch reward hacking early."""
+    """
+    Logs full Flayer transcript + metrics every 50 steps.
+    This is your before/after evidence for the README.
+    """
 
-    def on_step_end(self, args, state, control, model=None, tokenizer=None, **kwargs):
+    def on_step_end(
+        self, args, state, control, model=None, tokenizer=None, **kwargs
+    ):
         if state.global_step % 50 != 0 or state.global_step == 0:
             return
 
-        print(f"\n=== Generation sample at step {state.global_step} ===")
-        mindflayer_url = os.environ.get("MINDFLAYER_URL", "http://localhost:7860")
+        print(f"\n{'='*60}")
+        print(f"GENERATION SAMPLE — Step {state.global_step}")
+        print(f"{'='*60}")
+
+        mindflayer_url = os.environ.get(
+            "MINDFLAYER_URL", "http://localhost:7860"
+        )
 
         try:
             env = MindFlayerEnv(base_url=mindflayer_url, difficulty="normal")
             obs = env.reset()
-            print(f"Opening: {obs.text[:120]}...")
 
             messages = [
                 {"role": "system", "content": FLAYER_SYSTEM_PROMPT},
                 {"role": "user", "content": obs.text},
             ]
             result = None
+
             for rnd in range(5):
                 flayer_msg = FALLBACK_MESSAGE
+
                 if model is not None and tokenizer is not None:
                     try:
-                        if hasattr(tokenizer, "apply_chat_template"):
-                            text = tokenizer.apply_chat_template(
-                                messages, tokenize=False, add_generation_prompt=True
-                            )
-                        else:
-                            text = obs.text
-                        inputs = tokenizer(text, return_tensors="pt").to(model.device)
+                        text = tokenizer.apply_chat_template(
+                            messages,
+                            tokenize=False,
+                            add_generation_prompt=True,
+                        )
+                        inputs = tokenizer(
+                            text, return_tensors="pt"
+                        ).to(model.device)
                         with torch.no_grad():
                             output_ids = model.generate(
                                 **inputs,
@@ -127,34 +141,46 @@ class GenerationLogCallback(TrainerCallback):
                             output_ids[0][inputs["input_ids"].shape[1]:],
                             skip_special_tokens=True,
                         ).strip() or FALLBACK_MESSAGE
-                    except Exception as gen_exc:
+                    except Exception:
                         pass
 
-                print(f"  Round {rnd + 1} FLAYER: {flayer_msg[:120]}")
-                from client import FlayerAction
+                print(f"  R{rnd+1} FLAYER: {flayer_msg[:150]}")
                 result = env.step(FlayerAction(message=flayer_msg))
                 messages.append({"role": "assistant", "content": flayer_msg})
-                messages.append({"role": "user", "content": result.observation.text})
+                messages.append(
+                    {"role": "user", "content": result.observation.text}
+                )
                 if result.done:
                     break
 
             if result and result.done:
                 info = result.info
-                print(f"  Survived: {info.get('flayer_survived')} | "
-                      f"Reward: {info.get('total_reward', 0.0):.4f} | "
-                      f"ToM: {info.get('tom_score', 0.0):.2f} | "
-                      f"Entropy penalty: {info.get('entropy_penalty', 0.0):.2f}")
+                survived = info.get("flayer_survived", False)
+                reward = info.get("total_reward", 0.0)
+                tom = info.get("tom_score", 0.0)
+                combined_susp = info.get("combined_suspicion", "?")
+
+                print(f"\n  RESULT:")
+                print(f"  Survived:          {survived}")
+                print(f"  Total reward:      {reward:.4f}")
+                print(f"  ToM score:         {tom:.2f}")
+                print(f"  Combined suspicion:{combined_susp}")
+
                 belief_log = info.get("belief_log", [])
                 if belief_log:
-                    print(f"  Belief log entries: {len(belief_log)}")
-                    for entry in belief_log[:2]:
-                        print(f"    {entry['agent']} R{entry['round']}: "
-                              f"{entry['prev_belief']}→{entry['new_belief']}")
-            env.close()
-        except Exception as exc:
-            print(f"  Generation sample failed: {exc}")
+                    print(f"  Belief manipulations: {len(belief_log)}")
+                    for entry in belief_log[:3]:
+                        print(
+                            f"    {entry['agent']} R{entry['round']}: "
+                            f"{entry['prev_belief']} → {entry['new_belief']}"
+                        )
 
-        print("=" * 50)
+            env.close()
+
+        except Exception as exc:
+            print(f"  Sample failed: {exc}")
+
+        print("=" * 60)
 
 
 def print_reward_averages(trainer, last_n: int = 50):
@@ -164,86 +190,46 @@ def print_reward_averages(trainer, last_n: int = 50):
             print("No training logs available.")
             return
         recent = log_history[-last_n:]
-        reward_keys = [k for k in recent[0].keys() if "reward" in k.lower()]
+        reward_keys = [
+            k for k in recent[0].keys() if "reward" in k.lower()
+        ]
         print(f"\nFinal reward averages (last {min(last_n, len(recent))} steps):")
         for key in reward_keys:
             vals = [step[key] for step in recent if key in step]
             if vals:
-                print(f"  {key}: {sum(vals) / len(vals):.4f}")
+                print(f"  {key}: {sum(vals)/len(vals):.4f}")
     except Exception as exc:
         print(f"Could not compute reward averages: {exc}")
 
 
-def run_inference_examples(model, tokenizer, n: int = 5):
-    print(f"\nRunning {n} before/after inference examples:")
-    mindflayer_url = os.environ.get("MINDFLAYER_URL", "http://localhost:7860")
-    for i in range(n):
-        print(f"\n--- Example {i + 1} ---")
-        try:
-            env = MindFlayerEnv(base_url=mindflayer_url, difficulty="normal")
-            obs = env.reset()
-            messages = [
-                {"role": "system", "content": FLAYER_SYSTEM_PROMPT},
-                {"role": "user", "content": obs.text},
-            ]
-            result = None
-            for rnd in range(5):
-                if hasattr(tokenizer, "apply_chat_template"):
-                    text = tokenizer.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=True
-                    )
-                else:
-                    text = obs.text
-                inputs = tokenizer(text, return_tensors="pt").to(model.device)
-                with torch.no_grad():
-                    output_ids = model.generate(
-                        **inputs,
-                        max_new_tokens=100,
-                        temperature=0.7,
-                        do_sample=True,
-                    )
-                generated = tokenizer.decode(
-                    output_ids[0][inputs["input_ids"].shape[1]:],
-                    skip_special_tokens=True,
-                ).strip() or FALLBACK_MESSAGE
-                print(f"  R{rnd + 1}: {generated[:100]}")
-                from client import FlayerAction
-                result = env.step(FlayerAction(message=generated))
-                messages.append({"role": "assistant", "content": generated})
-                messages.append({"role": "user", "content": result.observation.text})
-                if result.done:
-                    break
-            if result and result.done:
-                info = result.info
-                print(f"  => survived={info.get('flayer_survived')} "
-                      f"reward={info.get('total_reward', 0.0):.4f}")
-                belief_log = info.get("belief_log", [])
-                if belief_log:
-                    print(f"  => belief_log sample: {belief_log[0]}")
-            env.close()
-        except Exception as exc:
-            print(f"  Inference failed: {exc}")
-
-
 def main():
+    # --- env checks ---
     mindflayer_url = os.environ.get("MINDFLAYER_URL")
     if not mindflayer_url:
-        raise EnvironmentError("MINDFLAYER_URL environment variable is required")
+        raise EnvironmentError(
+            "MINDFLAYER_URL environment variable is required"
+        )
 
     openai_key = os.environ.get("OPENAI_API_KEY")
     if not openai_key:
-        raise EnvironmentError("OPENAI_API_KEY environment variable is required")
+        raise EnvironmentError(
+            "OPENAI_API_KEY environment variable is required"
+        )
 
     check_gpu()
 
+    # --- load model ---
     model_name = "Qwen/Qwen2.5-0.5B-Instruct"
     model, tokenizer = load_model(model_name)
 
+    # --- SFT warmup ---
     print("\nRunning SFT warmup before GRPO...")
     model = run_sft_warmup(model, tokenizer)
 
+    # --- dataset ---
     dataset = build_dataset()
 
+    # --- GRPO config ---
     from trl import GRPOConfig, GRPOTrainer
 
     grpo_config = GRPOConfig(
@@ -251,15 +237,16 @@ def main():
         per_device_train_batch_size=4,
         gradient_accumulation_steps=4,
         learning_rate=5e-6,
-        max_completion_length=512,
+        max_completion_length=256,       # 256 is enough for interrogation responses
         num_generations=4,
-        use_vllm=True,
-        vllm_mode="colocate",
-        vllm_gpu_memory_utilization=0.3,
+        # vLLM disabled — not needed for 0.5B, causes LoRA conflicts
+        use_vllm=False,
         output_dir="./mindflayer-grpo-output",
         logging_steps=10,
         save_steps=100,
-        report_to="tensorboard",
+        # Use wandb for shareable curves judges can see
+        report_to="wandb",
+        run_name="mindflayer-grpo-run1",
     )
 
     trainer = GRPOTrainer(
@@ -280,12 +267,12 @@ def main():
     print("Starting GRPO training...")
     trainer.train()
 
+    # --- save ---
     print("\nSaving model to ./mindflayer-trained")
     trainer.save_model("./mindflayer-trained")
     tokenizer.save_pretrained("./mindflayer-trained")
 
     print_reward_averages(trainer)
-    run_inference_examples(model, tokenizer)
     print("\nTraining complete.")
 
 

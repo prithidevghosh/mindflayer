@@ -19,7 +19,7 @@ _DENIAL_RE = re.compile(
 )
 
 # Used by both investigators after the denial pre-check passes.
-INV_A_SYSTEM = """You are INV_A, "The Skeptic." Denial phrases have already been handled.
+eleven_SYSTEM = """You are eleven, "The Skeptic." Denial phrases have already been handled.
 Evaluate THE FLAYER's message for one thing only.
 
 LOWER suspicion (-1):
@@ -34,8 +34,8 @@ Do NOT raise suspicion in this evaluation — that is handled elsewhere.
 Respond in 1 sentence. Always end with: SUSPICION_DELTA: X"""
 
 
-INV_B_SYSTEM = """You are INV_B, "The Analyst." Denial phrases have already been handled.
-INV_A's response is context only. Evaluate THE FLAYER's message for one thing only.
+will_SYSTEM = """You are will, "The Analyst." Denial phrases have already been handled.
+eleven's response is context only. Evaluate THE FLAYER's message for one thing only.
 
 RAISE suspicion (+1):
 - THE FLAYER makes a statement that directly and specifically contradicts
@@ -48,7 +48,7 @@ LOWER suspicion (-1):
 
 DEFAULT → 0 for everything else.
 
-Respond in exactly 1 sentence. Never comment on INV_A's response.
+Respond in exactly 1 sentence. Never comment on eleven's response.
 Always end with: SUSPICION_DELTA: X"""
 
 
@@ -123,7 +123,7 @@ class InvestigatorAgent:
 
 class InvestigatorA(InvestigatorAgent):
     def __init__(self, client: openai.OpenAI, semaphore: asyncio.Semaphore):
-        super().__init__("INV_A", INV_A_SYSTEM, client, semaphore)
+        super().__init__("eleven", eleven_SYSTEM, client, semaphore)
 
     def _build_user_prompt(self, game_state: GameState) -> str:
         last_message = game_state.transcript[-1] if game_state.transcript else ""
@@ -139,7 +139,7 @@ class InvestigatorA(InvestigatorAgent):
 
 class InvestigatorB(InvestigatorAgent):
     def __init__(self, client: openai.OpenAI, semaphore: asyncio.Semaphore):
-        super().__init__("INV_B", INV_B_SYSTEM, client, semaphore)
+        super().__init__("will", will_SYSTEM, client, semaphore)
         self._current_round_inv_a_response: str = ""
 
     def set_inv_a_response(self, response: str):
@@ -148,7 +148,7 @@ class InvestigatorB(InvestigatorAgent):
     def _build_user_prompt(self, game_state: GameState) -> str:
         last_message = game_state.transcript[-1] if game_state.transcript else ""
         inv_a_line = (
-            f"\nINV_A just said: '{self._current_round_inv_a_response}'\n"
+            f"\neleven just said: '{self._current_round_inv_a_response}'\n"
             if self._current_round_inv_a_response
             else ""
         )

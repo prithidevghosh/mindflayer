@@ -111,7 +111,7 @@ _EXAMPLE_CONVERSATIONS = [
 _OPENING_TEXT = (
     "You are the FLAYER. You have infiltrated a 3-person project team.\n"
     "You are secretly targeting one of three projects: Aurora, Basilisk, or Cipher.\n"
-    "INV_A (The Skeptic) and INV_B (The Analyst) are investigating the team.\n"
+    "eleven (The Skeptic) and will (The Analyst) are investigating the team.\n"
     "They know a saboteur exists but not who, and not which project.\n"
     "You have 5 rounds before they vote. Make them doubt their judgment.\n"
     "Round 1 begins."
@@ -134,8 +134,8 @@ def _build_sft_dataset(tokenizer):
             if i < len(rounds) - 1:
                 round_obs = (
                     f"Round {i + 2}/5 — investigators are processing your response.\n"
-                    "INV_A: Interesting. Continue.\n"
-                    "INV_B: I'm noting the pattern. Go on."
+                    "eleven: Interesting. Continue.\n"
+                    "will: I'm noting the pattern. Go on."
                 )
                 conversation.append({"role": "user", "content": round_obs})
 

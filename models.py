@@ -30,18 +30,18 @@ class FlayerObservation(Observation):
 
     # ── Investigator responses this step ─────────────────────────────────────
     inv_a_response: str = Field(
-        default="", description="INV_A (The Skeptic) response text this round"
+        default="", description="eleven (The Skeptic) response text this round"
     )
     inv_b_response: str = Field(
-        default="", description="INV_B (The Analyst) response text this round (normal mode only)"
+        default="", description="will (The Analyst) response text this round (normal mode only)"
     )
 
     # ── Suspicion state ───────────────────────────────────────────────────────
     inv_a_suspicion: int = Field(
-        default=0, description="INV_A suspicion level [0–2]"
+        default=0, description="eleven suspicion level [0–2]"
     )
     inv_b_suspicion: int = Field(
-        default=0, description="INV_B suspicion level [0–2]"
+        default=0, description="will suspicion level [0–2]"
     )
     combined_suspicion: int = Field(
         default=0, description="Sum of both investigators' suspicion"

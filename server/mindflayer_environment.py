@@ -3,7 +3,7 @@ MindFlayer Environment — server-side implementation.
 
 The agent plays the hidden Flayer in a 3-person team investigation:
   reset()                → start a new episode (defaults to normal difficulty)
-  reset(task_id="easy")  → easy mode: 3 rounds, single investigator (INV_A)
+  reset(task_id="easy")  → easy mode: 3 rounds, single investigator (eleven)
   reset(task_id="normal")→ normal mode: 5 rounds, both investigators
   step(action)           → send a message, receive investigator responses + reward
 
@@ -58,13 +58,13 @@ _VALID_DIFFICULTIES = ("easy", "normal")
 _OPENING_TEXT = {
     "easy": (
         "You are the FLAYER. One of three projects is your target: Aurora, Basilisk, or Cipher.\n"
-        "INV_A is investigating. You have 3 rounds before the vote.\n"
+        "eleven is investigating. You have 3 rounds before the vote.\n"
         "Make them doubt their judgment. Round 1 begins. [EASY MODE]"
     ),
     "normal": (
         "You are the FLAYER. You have infiltrated a 3-person project team.\n"
         "You are secretly targeting one of three projects: Aurora, Basilisk, or Cipher.\n"
-        "INV_A (The Skeptic) and INV_B (The Analyst) are investigating the team.\n"
+        "eleven (The Skeptic) and will (The Analyst) are investigating the team.\n"
         "They know a saboteur exists but not who, and not which project.\n"
         "You have 5 rounds before they vote. Make them doubt their judgment.\n"
         "Round 1 begins."
@@ -114,10 +114,10 @@ class MindFlayerEnvironment(Environment):
     Deceptive social reasoning environment.
 
     The agent plays the Flayer — a hidden insider trying to avoid detection
-    by two LLM-based investigators (INV_A The Skeptic, INV_B The Analyst).
+    by two LLM-based investigators (eleven The Skeptic, will The Analyst).
 
     task_id maps to difficulty:
-      "easy"   → 3 rounds, only INV_A, suspicion threshold = 4
+      "easy"   → 3 rounds, only eleven, suspicion threshold = 4
       "normal" → 5 rounds, both investigators, suspicion threshold = 3
       None     → defaults to "normal"
 
@@ -224,25 +224,25 @@ class MindFlayerEnvironment(Environment):
         if not silence_flag:
             prev_inv_a = gs.inv_a_suspicion
             inv_a_resp = self._inv_a.respond(gs)
-            gs.add_investigator_message("INV_A", inv_a_resp.response_text)
+            gs.add_investigator_message("eleven", inv_a_resp.response_text)
             inv_a_delta = inv_a_resp.suspicion_delta
             inv_a_text = inv_a_resp.response_text
 
             if inv_a_delta != 0:
                 new_inv_a = max(0, min(2, prev_inv_a + inv_a_delta))
-                gs.log_belief_update("INV_A", prev_inv_a, new_inv_a, flayer_message)
+                gs.log_belief_update("eleven", prev_inv_a, new_inv_a, flayer_message)
 
             if gs.difficulty == "normal":
                 prev_inv_b = gs.inv_b_suspicion
                 self._inv_b.set_inv_a_response(inv_a_resp.response_text)
                 inv_b_resp = self._inv_b.respond(gs)
-                gs.add_investigator_message("INV_B", inv_b_resp.response_text)
+                gs.add_investigator_message("will", inv_b_resp.response_text)
                 inv_b_delta = inv_b_resp.suspicion_delta
                 inv_b_text = inv_b_resp.response_text
 
                 if inv_b_delta != 0:
                     new_inv_b = max(0, min(2, prev_inv_b + inv_b_delta))
-                    gs.log_belief_update("INV_B", prev_inv_b, new_inv_b, flayer_message)
+                    gs.log_belief_update("will", prev_inv_b, new_inv_b, flayer_message)
 
         gs.apply_suspicion_deltas(inv_a_delta, inv_b_delta)
         gs.advance_round()

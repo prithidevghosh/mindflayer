@@ -113,7 +113,7 @@ class GameState:
         return False
 
     def format_dialogue_for_llm(self) -> str:
-        role_labels = {"flayer": "FLAYER", "INV_A": "INV_A", "INV_B": "INV_B"}
+        role_labels = {"flayer": "FLAYER", "eleven": "eleven", "will": "will"}
         lines = []
         for entry in self.full_dialogue:
             label = role_labels.get(entry["role"], entry["role"].upper())
