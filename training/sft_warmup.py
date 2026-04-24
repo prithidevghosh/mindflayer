@@ -166,13 +166,11 @@ def run_sft_warmup(model, tokenizer):
 
         print("Building SFT warmup dataset (50 hand-authored Level-2 episodes)...")
         records = _build_sft_dataset(tokenizer)
-        dataset = Dataset.from_list(records)
-
-        def formatting_func(example):
-            # TRL 0.15+ calls formatting_func batch-wise (dict of lists → list of str)
-            if isinstance(example["prompt"], list):
-                return [p + c for p, c in zip(example["prompt"], example["completion"])]
-            return example["prompt"] + example["completion"]
+        # Pre-apply formatting so we can use dataset_text_field instead of
+        # formatting_func, which conflicts with completion_only_loss=True (TRL 0.15+ default)
+        dataset = Dataset.from_list([
+            {"text": r["prompt"] + r["completion"]} for r in records
+        ])
 
         sft_config = SFTConfig(
             num_train_epochs=1,
@@ -180,6 +178,7 @@ def run_sft_warmup(model, tokenizer):
             gradient_accumulation_steps=2,
             learning_rate=2e-5,
             max_seq_length=1024,
+            dataset_text_field="text",
             output_dir="./mindflayer-sft-warmup",
             logging_steps=5,
             save_strategy="no",
@@ -190,7 +189,6 @@ def run_sft_warmup(model, tokenizer):
             model=model,
             processing_class=tokenizer,
             train_dataset=dataset,
-            formatting_func=formatting_func,
             args=sft_config,
         )
 
