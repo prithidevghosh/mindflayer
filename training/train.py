@@ -235,7 +235,7 @@ def main():
 
     check_gpu()
 
-    model_name = "Qwen/Qwen2.5-1.5B-Instruct"
+    model_name = "Qwen/Qwen2.5-0.5B-Instruct"
     model, tokenizer = load_model(model_name)
 
     print("\nRunning SFT warmup before GRPO...")
