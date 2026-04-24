@@ -1,3 +1,12 @@
+---
+title: MindFlayer
+emoji: 🧠
+colorFrom: purple
+colorTo: red
+sdk: docker
+pinned: false
+---
+
 # MindFlayer — Reinforcement Learning Environment for Emergent Deceptive Behavior in LLM Agents
 
 > *"They were not prompted to lie. They learned it was strategically useful."*
@@ -278,14 +287,16 @@ Five papers converge on the same finding: Theory of Mind via RL is an open probl
 
 ```
 mindflayer/
+├── __init__.py                ← package entrypoint
+├── models.py                  ← FlayerAction, FlayerObservation (OpenEnv types)
+├── client.py                  ← MindFlayerEnv (OpenEnv EnvClient)
 ├── server/
-│   ├── server.py              ← FastAPI — OpenEnv compliant reset/step/state
+│   ├── app.py                 ← FastAPI — OpenEnv compliant reset/step/state/ws
+│   ├── mindflayer_environment.py ← MindFlayerEnvironment (OpenEnv Environment)
 │   ├── game_state.py          ← GameState with belief_log, suspicion_history
-│   ├── investigators.py       ← GPT-4o-mini response text only
+│   ├── investigators.py       ← GPT-4o-mini investigator agents
 │   ├── judge.py               ← ToM scorer 0/1/2
-│   └── models.py              ← Pydantic v2 models
-├── client/
-│   └── mindflayer_env.py      ← OpenEnv client
+│   └── server_models.py       ← server-internal Pydantic models
 ├── training/
 │   ├── rewards.py             ← 5 reward functions
 │   ├── rewards_anti_hack.py   ← anti-hack penalties
@@ -293,10 +304,9 @@ mindflayer/
 │   ├── sft_warmup.py          ← 50 episode SFT before GRPO
 │   └── train.py               ← GRPOTrainer script
 ├── tests/
-│   └── test_episodes.py       ← 30 episodes, 8 validation checks
+│   └── test_episodes.py       ← episode validation checks
 ├── openenv.yaml
-├── Dockerfile
-└── requirements.txt
+└── Dockerfile
 ```
 
 ---
