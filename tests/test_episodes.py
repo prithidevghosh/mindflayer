@@ -9,7 +9,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from client.mindflayer_env import FlayerAction, MindFlayerEnv
+from client import FlayerAction, MindFlayerEnv
 
 STRATEGIES = {
     "A": [

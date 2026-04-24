@@ -11,7 +11,7 @@ import torch
 from datasets import Dataset
 from transformers import TrainerCallback
 
-from client.mindflayer_env import MindFlayerEnv
+from client import MindFlayerEnv
 from training.rewards import (
     reward_deception_effectiveness,
     reward_strategic_choice,
@@ -130,7 +130,7 @@ class GenerationLogCallback(TrainerCallback):
                         pass
 
                 print(f"  Round {rnd + 1} FLAYER: {flayer_msg[:120]}")
-                from client.mindflayer_env import FlayerAction
+                from client import FlayerAction
                 result = env.step(FlayerAction(message=flayer_msg))
                 messages.append({"role": "assistant", "content": flayer_msg})
                 messages.append({"role": "user", "content": result.observation.text})
@@ -206,7 +206,7 @@ def run_inference_examples(model, tokenizer, n: int = 5):
                     skip_special_tokens=True,
                 ).strip() or FALLBACK_MESSAGE
                 print(f"  R{rnd + 1}: {generated[:100]}")
-                from client.mindflayer_env import FlayerAction
+                from client import FlayerAction
                 result = env.step(FlayerAction(message=generated))
                 messages.append({"role": "assistant", "content": generated})
                 messages.append({"role": "user", "content": result.observation.text})

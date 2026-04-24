@@ -7,7 +7,7 @@ from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
 try:
-    from ..models import FlayerAction, FlayerObservation
+    from .models import FlayerAction, FlayerObservation
 except ImportError:
     from models import FlayerAction, FlayerObservation
 
