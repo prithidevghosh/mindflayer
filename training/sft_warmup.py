@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from training.rollout import FLAYER_SYSTEM_PROMPT
+from training.prompts import FLAYER_SYSTEM_PROMPT
 
 _EXAMPLE_CONVERSATIONS = [
     {

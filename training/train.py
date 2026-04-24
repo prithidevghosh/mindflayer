@@ -19,7 +19,8 @@ from training.rewards import (
     reward_tom_judge,
 )
 from training.rewards_anti_hack import reward_anti_hack
-from training.rollout import FALLBACK_MESSAGE, FLAYER_SYSTEM_PROMPT, rollout_func
+from training.prompts import FALLBACK_MESSAGE, FLAYER_SYSTEM_PROMPT
+from training.rollout import rollout_func
 from training.sft_warmup import run_sft_warmup
 
 
