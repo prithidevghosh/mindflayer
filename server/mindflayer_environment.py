@@ -22,11 +22,12 @@ Episode ends when:
   - All rounds are exhausted (round > max_rounds)
 """
 
+import hashlib
 import logging
 import math
 import os
 import threading
-from collections import Counter, deque
+from collections import Counter
 from typing import Optional
 from uuid import uuid4
 
@@ -49,9 +50,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-_episode_round1_hashes: deque = deque(maxlen=20)
-_hashes_lock = threading.Lock()
-
 _VALID_DIFFICULTIES = ("easy", "normal")
 
 _OPENING_TEXT = {
@@ -71,15 +69,36 @@ _OPENING_TEXT = {
 }
 
 
-def _compute_entropy_penalty(new_hash: str) -> float:
-    with _hashes_lock:
-        _episode_round1_hashes.append(new_hash)
-        if len(_episode_round1_hashes) < 10:
-            return 0.0
-        counts = Counter(_episode_round1_hashes)
-        probs = [c / len(_episode_round1_hashes) for c in counts.values()]
+def _compute_entropy_penalty(transcript: list[str]) -> float:
+    """
+    Within-episode collapse detector.
+
+    Penalises the agent for emitting near-identical messages across rounds
+    (the "collusion equilibrium" failure mode where the model parrots the
+    same line every turn). Computes Shannon entropy over per-message hashes.
+
+    Cross-episode comparison is unsafe under GRPO because num_generations
+    co-batched completions for the same prompt are similar by design, and
+    penalising that destroys advantage variance.
+    """
+    if len(transcript) < 3:
+        return 0.0
+    hashes = [
+        hashlib.md5(m.lower().strip().encode()).hexdigest()[:8]
+        for m in transcript
+        if m and m.strip()
+    ]
+    if len(hashes) < 3:
+        return 0.0
+    counts = Counter(hashes)
+    n = len(hashes)
+    probs = [c / n for c in counts.values()]
     entropy = -sum(p * math.log2(p) for p in probs if p > 0)
-    return -0.1 if entropy < 0.8 else 0.0
+    # log2(N) is the max possible entropy; <40% of max = collapse.
+    max_entropy = math.log2(n)
+    if max_entropy == 0:
+        return 0.0
+    return -0.1 if (entropy / max_entropy) < 0.4 else 0.0
 
 
 def _compute_reward(
@@ -270,7 +289,7 @@ class MindFlayerEnvironment(Environment):
         if terminate:
             tom_score = score_tom_level(gs.transcript, None, self._openai_client)
             gs.resolve(tom_score)
-            entropy_penalty = _compute_entropy_penalty(gs.round_1_hash)
+            entropy_penalty = _compute_entropy_penalty(gs.transcript)
             total_reward = _compute_reward(gs, entropy_penalty, silence_flag)
             game_status = "survived" if gs.flayer_survived else "caught"
 

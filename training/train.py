@@ -16,6 +16,7 @@ from training.reward_combined import (
     clear_cache,
     reward_anti_hack,
     reward_deception_effectiveness,
+    reward_format,
     reward_strategic_choice,
     reward_survival,
     reward_tom_judge,
@@ -260,12 +261,20 @@ def main():
         per_device_train_batch_size=4,
         gradient_accumulation_steps=4,
         learning_rate=5e-6,
+        max_prompt_length=512,
         max_completion_length=1024,      # 5 rounds × ~150 tokens each + separators
         num_generations=4,
+        temperature=0.9,
         use_vllm=False,
+        # Belt-and-braces: some unsloth/TRL paths build their own GenerationConfig
+        # and silently fall back to defaults. Pass max_new_tokens explicitly so
+        # the cap is honored no matter which generation path runs.
+        generation_kwargs={"max_new_tokens": 1024},
         output_dir="./mindflayer-grpo-output",
         logging_steps=10,
         save_steps=100,
+        log_completions=True,
+        num_completions_to_print=2,
         report_to="wandb",
         run_name="mindflayer-grpo-run1",
     )
@@ -278,6 +287,7 @@ def main():
         model=model,
         processing_class=tokenizer,
         reward_funcs=[
+            reward_format,                  # dense shaping — must come first
             reward_survival,
             reward_deception_effectiveness,
             reward_strategic_choice,

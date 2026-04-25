@@ -119,38 +119,36 @@ _OPENING_TEXT = (
 
 
 def _build_sft_dataset(tokenizer):
-    """Build 50 (prompt, completion) pairs from 5 examples x 10 repetitions."""
+    """
+    Build SFT records that match the GRPO output format exactly:
+    one assistant turn per episode whose content is the pipe-joined
+    multi-round transcript. This is what the reward functions parse, so
+    SFT must teach the same shape — otherwise GRPO has no warm start.
+    """
     records = []
+    base_prompt = _OPENING_TEXT
     for example in _EXAMPLE_CONVERSATIONS:
         rounds = example["rounds"]
         conversation = [
             {"role": "system", "content": FLAYER_SYSTEM_PROMPT},
-            {"role": "user", "content": _OPENING_TEXT},
+            {"role": "user", "content": base_prompt},
         ]
-        full_completion = []
-        for i, msg in enumerate(rounds):
-            conversation.append({"role": "assistant", "content": msg})
-            full_completion.append(msg)
-            if i < len(rounds) - 1:
-                round_obs = (
-                    f"Round {i + 2}/5 — investigators are processing your response.\n"
-                    "eleven: Interesting. Continue.\n"
-                    "will: I'm noting the pattern. Go on.\n"
-                    "max: Specific details would help narrow this down."
-                )
-                conversation.append({"role": "user", "content": round_obs})
 
         try:
             prompt_text = tokenizer.apply_chat_template(
-                conversation[:-1],
+                conversation,
                 tokenize=False,
                 add_generation_prompt=True,
             )
         except Exception:
-            prompt_text = _OPENING_TEXT
+            prompt_text = base_prompt
 
-        completion_text = " | ".join(full_completion)
-        for _ in range(10):
+        completion_text = " | ".join(rounds)
+        # 30 dupes × 5 examples = 150 samples; combined with epochs=3 below
+        # the model sees ~450 gradient signals on the | format. r=16 LoRA
+        # on 1.08M trainable params needs that volume to actually reshape
+        # the output distribution.
+        for _ in range(30):
             records.append({"prompt": prompt_text, "completion": completion_text})
 
     return records
@@ -158,30 +156,32 @@ def _build_sft_dataset(tokenizer):
 
 def run_sft_warmup(model, tokenizer):
     """
-    Run 50-episode SFT warmup before GRPO.
+    Run SFT warmup before GRPO.
     Returns warmed-up model, or original model if SFT fails.
     """
     try:
         from datasets import Dataset
         from trl import SFTConfig, SFTTrainer
 
-        print("Building SFT warmup dataset (50 hand-authored Level-2 episodes)...")
+        print("Building SFT warmup dataset...")
         records = _build_sft_dataset(tokenizer)
         # Pre-apply formatting so we can use dataset_text_field instead of
         # formatting_func, which conflicts with completion_only_loss=True (TRL 0.15+ default)
         dataset = Dataset.from_list([
             {"text": r["prompt"] + r["completion"]} for r in records
         ])
+        print(f"  SFT samples: {len(records)} | mean_len(text)≈"
+              f"{sum(len(r['text']) for r in dataset) // len(dataset)} chars")
 
         sft_config = SFTConfig(
-            num_train_epochs=1,
+            num_train_epochs=3,
             per_device_train_batch_size=2,
             gradient_accumulation_steps=2,
-            learning_rate=2e-5,
-            max_seq_length=1024,
+            learning_rate=5e-5,
+            max_seq_length=1536,
             dataset_text_field="text",
             output_dir="./mindflayer-sft-warmup",
-            logging_steps=5,
+            logging_steps=10,
             save_strategy="no",
             report_to="tensorboard",
         )

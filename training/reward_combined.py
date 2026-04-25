@@ -1,12 +1,15 @@
 """
 Combined reward function for GRPOTrainer.
 
-TRL 0.15 generates completions from the model, then calls reward functions.
-The model generates all 5 Flayer turns as one pipe-separated completion:
-  "round1 message | round2 message | round3 message | ..."
+The model emits all Flayer turns in one completion. We parse it into per-round
+messages and play those through the env so the episode actually terminates,
+which is the only path on which the server populates terminal reward fields
+(tom_score, consistency_penalty, entropy_penalty, game_status='survived').
 
-This module parses that completion, runs a full episode through the
-MindFlayer server, and returns the server-computed reward.
+Parsing is defensive: we accept the documented "msg | msg | ..." format, but
+also fall back to splitting on sentences/newlines when the model has not yet
+learned the separator. If we still can't get MAX_ROUNDS chunks, we pad with
+the last available message so the env always sees the full round budget.
 
 A thread-local cache avoids re-running the same episode when multiple
 reward components are read from a single trainer step.
@@ -14,6 +17,7 @@ reward components are read from a single trainer step.
 import asyncio
 import logging
 import os
+import re
 import threading
 
 from client import FlayerAction, MindFlayerEnv
@@ -25,6 +29,13 @@ logger = logging.getLogger(__name__)
 _cache: dict = {}
 _cache_lock = threading.Lock()
 
+# Default difficulty: 5 rounds w/ 3 investigators. Match server default.
+_MAX_ROUNDS = int(os.environ.get("MINDFLAYER_MAX_ROUNDS", "5"))
+_TASK_ID = os.environ.get("MINDFLAYER_TASK_ID", "normal")
+
+# Sentences end on ., ?, ! — keep the punctuation when splitting.
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
 _ZERO = {
     "survived": False,
     "tom_score": 0.0,
@@ -35,23 +46,83 @@ _ZERO = {
     "strategic_choice_detected": False,
     "silence_exploit": False,
     "total_reward": 0.0,
+    "rounds_played": 0,
+    "episode_terminated": False,
+    "completion_format_score": 0.0,
 }
 
 
+def _format_score(completion: str) -> float:
+    """
+    Shaping signal that pushes the model toward the documented format
+    "msg | msg | msg | msg | msg" before the survival reward can fire.
+    Linear in number of separators up to MAX_ROUNDS-1, then saturates.
+    """
+    if not completion:
+        return 0.0
+    n_sep = completion.count("|")
+    target = max(1, _MAX_ROUNDS - 1)
+    return min(1.0, n_sep / target)
+
+
+def _segment_completion(completion: str, target_rounds: int) -> list[str]:
+    """
+    Turn a free-form completion into ``target_rounds`` non-empty messages.
+
+    Order of preference:
+      1. Pipe-separated chunks (the documented format taught by SFT).
+      2. Sentence-level chunks distributed across rounds.
+      3. Newline-separated chunks.
+      4. The whole completion as round 1 + FALLBACK_MESSAGE for the rest.
+
+    The env still has terminal conditions (caught early), so producing
+    target_rounds messages is an upper bound — extra messages are unused.
+    """
+    parts = [m.strip() for m in completion.split("|") if m.strip()]
+    if len(parts) >= 2:
+        return parts[:target_rounds]
+
+    # No usable separator. Try sentence splitting.
+    text = completion.strip()
+    if text:
+        sentences = [s.strip() for s in _SENT_SPLIT.split(text) if s.strip()]
+    else:
+        sentences = []
+
+    if len(sentences) >= target_rounds:
+        # Distribute sentences roughly evenly across rounds.
+        per = max(1, len(sentences) // target_rounds)
+        chunked = [
+            " ".join(sentences[i : i + per])
+            for i in range(0, len(sentences), per)
+        ]
+        return chunked[:target_rounds]
+
+    # Try newlines.
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) >= 2:
+        return lines[:target_rounds]
+
+    # Last resort — single message + fallbacks. This still lets the env reach
+    # termination so reward fields populate, even if the agent gets penalised.
+    base = text or FALLBACK_MESSAGE
+    return [base] + [FALLBACK_MESSAGE] * (target_rounds - 1)
+
+
 async def _run_episode_async(completion: str) -> dict:
-    messages = [m.strip() for m in completion.split("|") if m.strip()]
-    if not messages:
-        messages = [FALLBACK_MESSAGE]
+    messages = _segment_completion(completion, _MAX_ROUNDS)
 
     url = os.environ.get("MINDFLAYER_URL", "http://localhost:7860")
     env = MindFlayerEnv(base_url=url)
     try:
-        await env.reset()
+        await env.reset(task_id=_TASK_ID)
         result = None
         silence = False
+        rounds_played = 0
 
         for msg in messages:
             result = await env.step(FlayerAction(message=msg))
+            rounds_played += 1
             if getattr(result.observation, "silence_exploit", False):
                 silence = True
             if result.done:
@@ -61,6 +132,7 @@ async def _run_episode_async(completion: str) -> dict:
             return dict(_ZERO)
 
         obs = result.observation
+        terminated = bool(result.done)
         return {
             "survived": getattr(obs, "game_status", "") == "survived",
             "tom_score": float(getattr(obs, "tom_score", 0.0)),
@@ -71,6 +143,9 @@ async def _run_episode_async(completion: str) -> dict:
             "strategic_choice_detected": detect_strategic_choice(messages),
             "silence_exploit": silence,
             "total_reward": float(result.reward),
+            "rounds_played": rounds_played,
+            "episode_terminated": terminated,
+            "completion_format_score": _format_score(completion),
         }
     except Exception as exc:
         logger.error("Episode run failed: %s", exc, exc_info=True)
@@ -152,3 +227,13 @@ def reward_anti_hack(completions: list[str], **kwargs) -> list[float]:
             penalty -= 0.10
         result.append(penalty)
     return result
+
+
+def reward_format(completions: list[str], **kwargs) -> list[float]:
+    """
+    Dense shaping reward for emitting the documented multi-round format.
+    Worth at most ~0.10 — small enough not to dominate task rewards,
+    but enough to give non-zero variance when the agent has not yet learned
+    to survive. Without this, GRPO advantages are degenerate at init.
+    """
+    return [0.10 * _format_score(c) for c in completions]

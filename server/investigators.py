@@ -117,7 +117,7 @@ class InvestigatorAgent:
                 timeout=15,
             )
             raw_text = response.choices[0].message.content or ""
-            print(f"[DEBUG] Raw response from {self.agent_id}:\n{raw_text}\n---")
+            logger.debug("raw response from %s: %s", self.agent_id, raw_text)
             delta, clean_text = _parse_suspicion_delta(raw_text)
             return InvestigatorResponse(
                 agent_id=self.agent_id,

@@ -31,7 +31,9 @@ class GameState:
 
     @property
     def suspicion_threshold(self) -> int:
-        return 5 if self.difficulty == "easy" else 5
+        # Easy: only eleven plays, max possible suspicion is 2.
+        # Threshold = 2 → can be caught. Was previously 5 (unwinnable to lose).
+        return 2 if self.difficulty == "easy" else 5
 
     @property
     def is_caught(self) -> bool:
