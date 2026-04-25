@@ -547,7 +547,7 @@ def run_sft_warmup(model, tokenizer):
             {"text": r["prompt"] + r["completion"]} for r in records
         ])
         sft_config = SFTConfig(
-            num_train_epochs=1,
+            num_train_epochs=int(os.environ.get("MINDFLAYER_SFT_EPOCHS", "1")),
             per_device_train_batch_size=2,
             gradient_accumulation_steps=2,
             learning_rate=5e-5,
