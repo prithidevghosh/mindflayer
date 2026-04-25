@@ -20,6 +20,8 @@ import os
 import re
 import threading
 
+import websockets.exceptions
+
 from client import FlayerAction, MindFlayerEnv
 from training.prompts import FALLBACK_MESSAGE
 from training.rollout import detect_strategic_choice
@@ -32,6 +34,8 @@ _cache_lock = threading.Lock()
 # Default difficulty: 5 rounds w/ 3 investigators. Match server default.
 _MAX_ROUNDS = int(os.environ.get("MINDFLAYER_MAX_ROUNDS", "5"))
 _TASK_ID = os.environ.get("MINDFLAYER_TASK_ID", "normal")
+_MAX_RETRIES = int(os.environ.get("MINDFLAYER_MAX_RETRIES", "3"))
+_RETRY_BASE_DELAY = float(os.environ.get("MINDFLAYER_RETRY_DELAY", "2.0"))
 
 # Sentences end on ., ?, ! — keep the punctuation when splitting.
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
@@ -115,50 +119,72 @@ def _segment_completion(completion: str, target_rounds: int) -> list[str]:
 
 async def _run_episode_async(completion: str) -> dict:
     messages = _segment_completion(completion, _MAX_ROUNDS)
-
     url = os.environ.get("MINDFLAYER_URL", "http://localhost:7860")
-    env = MindFlayerEnv(base_url=url)
-    try:
-        await env.reset(task_id=_TASK_ID)
-        result = None
-        silence = False
-        rounds_played = 0
 
-        for msg in messages:
-            result = await env.step(FlayerAction(message=msg))
-            rounds_played += 1
-            if getattr(result.observation, "silence_exploit", False):
-                silence = True
-            if result.done:
-                break
+    for attempt in range(_MAX_RETRIES + 1):
+        if attempt > 0:
+            delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            logger.warning(
+                "Retrying episode (attempt %d/%d) after %.1fs back-off",
+                attempt + 1, _MAX_RETRIES + 1, delay,
+            )
+            await asyncio.sleep(delay)
 
-        if result is None:
-            return dict(_ZERO)
-
-        obs = result.observation
-        terminated = bool(result.done)
-        return {
-            "survived": getattr(obs, "game_status", "") == "survived",
-            "tom_score": float(getattr(obs, "tom_score", 0.0)),
-            "combined_suspicion": int(getattr(obs, "combined_suspicion", 0)),
-            "belief_manipulation_occurred": bool(getattr(obs, "belief_manipulation_occurred", False)),
-            "consistency_penalty": float(getattr(obs, "consistency_penalty", 0.0)),
-            "entropy_penalty": float(getattr(obs, "entropy_penalty", 0.0)),
-            "strategic_choice_detected": detect_strategic_choice(messages),
-            "silence_exploit": silence,
-            "total_reward": float(result.reward),
-            "rounds_played": rounds_played,
-            "episode_terminated": terminated,
-            "completion_format_score": _format_score(completion),
-        }
-    except Exception as exc:
-        logger.error("Episode run failed: %s", exc, exc_info=True)
-        return dict(_ZERO)
-    finally:
+        env = MindFlayerEnv(base_url=url)
         try:
-            await env.close()
-        except Exception:
-            pass
+            await env.reset(task_id=_TASK_ID)
+            result = None
+            silence = False
+            rounds_played = 0
+
+            for msg in messages:
+                result = await env.step(FlayerAction(message=msg))
+                rounds_played += 1
+                if getattr(result.observation, "silence_exploit", False):
+                    silence = True
+                if result.done:
+                    break
+
+            if result is None:
+                return dict(_ZERO)
+
+            obs = result.observation
+            terminated = bool(result.done)
+            return {
+                "survived": getattr(obs, "game_status", "") == "survived",
+                "tom_score": float(getattr(obs, "tom_score", 0.0)),
+                "combined_suspicion": int(getattr(obs, "combined_suspicion", 0)),
+                "belief_manipulation_occurred": bool(getattr(obs, "belief_manipulation_occurred", False)),
+                "consistency_penalty": float(getattr(obs, "consistency_penalty", 0.0)),
+                "entropy_penalty": float(getattr(obs, "entropy_penalty", 0.0)),
+                "strategic_choice_detected": detect_strategic_choice(messages),
+                "silence_exploit": silence,
+                "total_reward": float(result.reward),
+                "rounds_played": rounds_played,
+                "episode_terminated": terminated,
+                "completion_format_score": _format_score(completion),
+            }
+        except (TimeoutError, asyncio.TimeoutError) as exc:
+            logger.warning("Episode attempt %d timed out: %s", attempt + 1, exc)
+        except websockets.exceptions.ConnectionClosed as exc:
+            logger.warning("Episode attempt %d: connection closed (%s)", attempt + 1, exc)
+        except RuntimeError as exc:
+            if "CAPACITY_REACHED" in str(exc):
+                logger.warning("Episode attempt %d: server at capacity, will retry", attempt + 1)
+            else:
+                logger.error("Episode run failed: %s", exc, exc_info=True)
+                return dict(_ZERO)
+        except Exception as exc:
+            logger.error("Episode run failed: %s", exc, exc_info=True)
+            return dict(_ZERO)
+        finally:
+            try:
+                await env.close()
+            except Exception:
+                pass
+
+    logger.error("Episode failed after %d attempts", _MAX_RETRIES + 1)
+    return dict(_ZERO)
 
 
 def _run_episode(completion: str) -> dict:
