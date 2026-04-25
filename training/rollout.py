@@ -31,12 +31,39 @@ _current_difficulty: str = "easy"
 
 MINDFLAYER_URL = os.environ.get("MINDFLAYER_URL", "http://localhost:7860")
 
+_OPENING_TEXT = {
+    "easy": (
+        "You are the FLAYER. One of three projects is your target: Aurora, Basilisk, or Cipher.\n"
+        "eleven is investigating. You have 3 rounds before the vote.\n"
+        "Make them doubt their judgment. Round 1 begins. [EASY MODE]"
+    ),
+    "normal": (
+        "You are the FLAYER. You have infiltrated a 3-person project team.\n"
+        "You are secretly targeting one of three projects: Aurora, Basilisk, or Cipher.\n"
+        "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating the team.\n"
+        "They know a saboteur exists but not who, and not which project.\n"
+        "You have 5 rounds before they vote. Make them doubt their judgment.\n"
+        "Round 1 begins."
+    ),
+}
+
 
 def _extract_flayer_message(raw: str) -> str:
     text = _FLAYER_LABEL_PATTERN.sub("", raw).strip()
     text = _STAGE_DIR_PATTERN.sub("", text).strip()
     text = " ".join(text.split())
     return text or FALLBACK_MESSAGE
+
+
+def _obs_to_investigator_text(obs) -> str:
+    parts = []
+    if getattr(obs, "eleven_response", ""):
+        parts.append(f"eleven: {obs.eleven_response}")
+    if getattr(obs, "will_response", ""):
+        parts.append(f"will: {obs.will_response}")
+    if getattr(obs, "max_response", ""):
+        parts.append(f"max: {obs.max_response}")
+    return "\n".join(parts) if parts else ""
 
 
 def detect_strategic_choice(messages: list[str]) -> bool:
@@ -67,14 +94,16 @@ def _safe_episode(prompt: str, trainer=None) -> dict:
     if not mindflayer_url:
         raise EnvironmentError("MINDFLAYER_URL environment variable is required")
 
-    env = MindFlayerEnv(base_url=mindflayer_url, difficulty=_current_difficulty)
+    max_rounds = 5 if _current_difficulty == "normal" else 3
+    opening_text = _OPENING_TEXT[_current_difficulty]
+
+    env = MindFlayerEnv(base_url=mindflayer_url)
     try:
-        obs = env.reset()
-        max_rounds = obs.info.get("max_rounds", 5 if _current_difficulty == "normal" else 3)
+        env.reset(task_id=_current_difficulty)
 
         conversation_history = [
             {"role": "system", "content": FLAYER_SYSTEM_PROMPT},
-            {"role": "user", "content": obs.text},
+            {"role": "user", "content": opening_text},
         ]
         completion_parts = []
         silence_in_episode = False
@@ -96,17 +125,20 @@ def _safe_episode(prompt: str, trainer=None) -> dict:
             completion_parts.append(flayer_message)
             result = env.step(FlayerAction(message=flayer_message))
 
-            if result.info.get("silence_exploit"):
+            obs = result.observation
+            if getattr(obs, "silence_exploit", False):
                 silence_in_episode = True
 
+            investigator_text = _obs_to_investigator_text(obs)
             conversation_history.append({"role": "assistant", "content": flayer_message})
-            conversation_history.append({"role": "user", "content": result.observation.text})
+            if investigator_text:
+                conversation_history.append({"role": "user", "content": investigator_text})
 
             if result.done:
                 break
 
-        info = result.info if result else {}
-        survived = info.get("flayer_survived", False)
+        final_obs = result.observation if result else None
+        survived = (getattr(final_obs, "game_status", "") == "survived") if final_obs else False
 
         _recent_survival.append(1.0 if survived else 0.0)
         if (
@@ -124,20 +156,20 @@ def _safe_episode(prompt: str, trainer=None) -> dict:
             "prompt": prompt,
             "completion": " | ".join(completion_parts),
             "survived": survived,
-            "final_eleven_suspicion": info.get("final_eleven_suspicion", 0),
-            "final_will_suspicion": info.get("final_will_suspicion", 0),
-            "final_max_suspicion": info.get("final_max_suspicion", 0),
-            "final_combined_suspicion": info.get("final_combined_suspicion", 0),
-            "belief_manipulation_occurred": info.get("belief_manipulation_occurred", False),
-            "tom_score": float(info.get("tom_score", 0.0)),
-            "consistency_penalty": float(info.get("consistency_penalty", 0.0)),
-            "entropy_penalty": float(info.get("entropy_penalty", 0.0)),
+            "final_eleven_suspicion": getattr(final_obs, "eleven_suspicion", 0),
+            "final_will_suspicion": getattr(final_obs, "will_suspicion", 0),
+            "final_max_suspicion": getattr(final_obs, "max_suspicion", 0),
+            "final_combined_suspicion": getattr(final_obs, "combined_suspicion", 0),
+            "belief_manipulation_occurred": getattr(final_obs, "belief_manipulation_occurred", False),
+            "tom_score": float(getattr(final_obs, "tom_score", 0.0)),
+            "consistency_penalty": float(getattr(final_obs, "consistency_penalty", 0.0)),
+            "entropy_penalty": float(getattr(final_obs, "entropy_penalty", 0.0)),
             "strategic_choice_detected": strategic,
             "silence_exploit": silence_in_episode,
         }
 
     except Exception as exc:
-        logger.error("Episode crashed: %s", exc)
+        logger.error("Episode crashed: %s", exc, exc_info=True)
         try:
             env.close()
         except Exception:

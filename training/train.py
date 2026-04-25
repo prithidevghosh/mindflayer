@@ -108,12 +108,20 @@ class GenerationLogCallback(TrainerCallback):
         )
 
         try:
-            env = MindFlayerEnv(base_url=mindflayer_url, difficulty="normal")
-            obs = env.reset()
+            env = MindFlayerEnv(base_url=mindflayer_url)
+            env.reset(task_id="normal")
 
+            opening = (
+                "You are the FLAYER. You have infiltrated a 3-person project team.\n"
+                "You are secretly targeting one of three projects: Aurora, Basilisk, or Cipher.\n"
+                "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating the team.\n"
+                "They know a saboteur exists but not who, and not which project.\n"
+                "You have 5 rounds before they vote. Make them doubt their judgment.\n"
+                "Round 1 begins."
+            )
             messages = [
                 {"role": "system", "content": FLAYER_SYSTEM_PROMPT},
-                {"role": "user", "content": obs.text},
+                {"role": "user", "content": opening},
             ]
             result = None
 
@@ -146,19 +154,24 @@ class GenerationLogCallback(TrainerCallback):
 
                 print(f"  R{rnd+1} FLAYER: {flayer_msg[:150]}")
                 result = env.step(FlayerAction(message=flayer_msg))
+                obs = result.observation
+                inv_text = obs.eleven_response or ""
+                if getattr(obs, "will_response", ""):
+                    inv_text += f"\nwill: {obs.will_response}"
+                if getattr(obs, "max_response", ""):
+                    inv_text += f"\nmax: {obs.max_response}"
                 messages.append({"role": "assistant", "content": flayer_msg})
-                messages.append(
-                    {"role": "user", "content": result.observation.text}
-                )
+                if inv_text:
+                    messages.append({"role": "user", "content": inv_text})
                 if result.done:
                     break
 
             if result and result.done:
-                info = result.info
-                survived = info.get("flayer_survived", False)
-                reward = info.get("total_reward", 0.0)
-                tom = info.get("tom_score", 0.0)
-                combined_susp = info.get("combined_suspicion", "?")
+                obs = result.observation
+                survived = getattr(obs, "game_status", "") == "survived"
+                reward = result.reward
+                tom = getattr(obs, "tom_score", 0.0)
+                combined_susp = getattr(obs, "combined_suspicion", "?")
 
                 print(f"\n  RESULT:")
                 print(f"  Survived:          {survived}")
@@ -166,7 +179,7 @@ class GenerationLogCallback(TrainerCallback):
                 print(f"  ToM score:         {tom:.2f}")
                 print(f"  Combined suspicion:{combined_susp}")
 
-                belief_log = info.get("belief_log", [])
+                belief_log = getattr(obs, "belief_log", [])
                 if belief_log:
                     print(f"  Belief manipulations: {len(belief_log)}")
                     for entry in belief_log[:3]:
