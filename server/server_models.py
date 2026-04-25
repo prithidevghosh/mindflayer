@@ -22,10 +22,12 @@ class BeliefLogEntry(BaseModel):
 
 class RoundObservation(BaseModel):
     round_number: int
-    inv_a_response: str
-    inv_b_response: str
-    inv_a_suspicion: int
-    inv_b_suspicion: int
+    eleven_response: str
+    will_response: str
+    max_response: str
+    eleven_suspicion: int
+    will_suspicion: int
+    max_suspicion: int
     combined_suspicion: int
     game_status: str
     transcript: list[str]

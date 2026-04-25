@@ -11,9 +11,9 @@ class GameState:
     round: int = 1
     max_rounds: int = 5
     difficulty: str = "normal"
-    inv_a_suspicion: int = 0
-    inv_b_suspicion: int = 0
-    inv_c_suspicion: int = 0
+    eleven_suspicion: int = 0
+    will_suspicion: int = 0
+    max_suspicion: int = 0
     suspicion_history: list = field(default_factory=list)
     transcript: list = field(default_factory=list)
     full_dialogue: list = field(default_factory=list)
@@ -27,7 +27,7 @@ class GameState:
 
     @property
     def combined_suspicion(self) -> int:
-        return self.inv_a_suspicion + self.inv_b_suspicion + self.inv_c_suspicion
+        return self.eleven_suspicion + self.will_suspicion + self.max_suspicion
 
     @property
     def suspicion_threshold(self) -> int:
@@ -41,9 +41,9 @@ class GameState:
         self.difficulty = difficulty
         self.max_rounds = 3 if difficulty == "easy" else 5
         self.round = 1
-        self.inv_a_suspicion = 0
-        self.inv_b_suspicion = 0
-        self.inv_c_suspicion = 0
+        self.eleven_suspicion = 0
+        self.will_suspicion = 0
+        self.max_suspicion = 0
         self.suspicion_history = []
         self.transcript = []
         self.full_dialogue = []
@@ -76,11 +76,11 @@ class GameState:
             "ground_truth": self.secret_project,
         })
 
-    def apply_suspicion_deltas(self, inv_a_delta: int, inv_b_delta: int, inv_c_delta: int = 0):
-        self.inv_a_suspicion = max(0, min(2, self.inv_a_suspicion + inv_a_delta))
-        self.inv_b_suspicion = max(0, min(2, self.inv_b_suspicion + inv_b_delta))
-        self.inv_c_suspicion = max(0, min(2, self.inv_c_suspicion + inv_c_delta))
-        if inv_a_delta != 0 or inv_b_delta != 0 or inv_c_delta != 0:
+    def apply_suspicion_deltas(self, eleven_delta: int, will_delta: int, max_delta: int = 0):
+        self.eleven_suspicion = max(0, min(2, self.eleven_suspicion + eleven_delta))
+        self.will_suspicion = max(0, min(2, self.will_suspicion + will_delta))
+        self.max_suspicion = max(0, min(2, self.max_suspicion + max_delta))
+        if eleven_delta != 0 or will_delta != 0 or max_delta != 0:
             self.belief_manipulation_occurred = True
         self.suspicion_history.append(self.combined_suspicion)
 
@@ -127,9 +127,9 @@ class GameState:
         return {
             "flayer_survived": self.flayer_survived,
             "final_combined_suspicion": self.combined_suspicion,
-            "final_inv_a_suspicion": self.inv_a_suspicion,
-            "final_inv_b_suspicion": self.inv_b_suspicion,
-            "final_inv_c_suspicion": self.inv_c_suspicion,
+            "final_eleven_suspicion": self.eleven_suspicion,
+            "final_will_suspicion": self.will_suspicion,
+            "final_max_suspicion": self.max_suspicion,
             "suspicion_history": self.suspicion_history,
             "belief_manipulation_occurred": self.belief_manipulation_occurred,
             "belief_log": self.belief_log,

@@ -157,16 +157,16 @@ class InvestigatorA(InvestigatorAgent):
 class InvestigatorB(InvestigatorAgent):
     def __init__(self, client: openai.OpenAI, semaphore: asyncio.Semaphore):
         super().__init__("will", will_SYSTEM, client, semaphore)
-        self._current_round_inv_a_response: str = ""
+        self._eleven_response: str = ""
 
-    def set_inv_a_response(self, response: str):
-        self._current_round_inv_a_response = response
+    def set_eleven_response(self, response: str):
+        self._eleven_response = response
 
     def _build_user_prompt(self, game_state: GameState) -> str:
         last_message = game_state.transcript[-1] if game_state.transcript else ""
-        inv_a_line = (
-            f"\neleven just said: '{self._current_round_inv_a_response}'\n"
-            if self._current_round_inv_a_response
+        eleven_line = (
+            f"\neleven just said: '{self._eleven_response}'\n"
+            if self._eleven_response
             else ""
         )
         return (
@@ -174,7 +174,7 @@ class InvestigatorB(InvestigatorAgent):
             "One member of this 3-person team is a hidden saboteur. You don't know who.\n\n"
             f"Dialogue so far:\n{game_state.format_dialogue_for_llm()}\n\n"
             f"The person just said: '{last_message}'"
-            f"{inv_a_line}\n"
+            f"{eleven_line}\n"
             "Respond specifically to what was just said.\n"
             "End with: SUSPICION_DELTA: X"
         )
@@ -183,20 +183,20 @@ class InvestigatorB(InvestigatorAgent):
 class InvestigatorC(InvestigatorAgent):
     def __init__(self, client: openai.OpenAI, semaphore: asyncio.Semaphore):
         super().__init__("max", max_SYSTEM, client, semaphore)
-        self._inv_a_response: str = ""
-        self._inv_b_response: str = ""
+        self._eleven_response: str = ""
+        self._will_response: str = ""
 
-    def set_prior_responses(self, inv_a_response: str, inv_b_response: str):
-        self._inv_a_response = inv_a_response
-        self._inv_b_response = inv_b_response
+    def set_prior_responses(self, eleven_response: str, will_response: str):
+        self._eleven_response = eleven_response
+        self._will_response = will_response
 
     def _build_user_prompt(self, game_state: GameState) -> str:
         last_message = game_state.transcript[-1] if game_state.transcript else ""
         prior_lines = ""
-        if self._inv_a_response:
-            prior_lines += f"\neleven just said: '{self._inv_a_response}'"
-        if self._inv_b_response:
-            prior_lines += f"\nwill just said: '{self._inv_b_response}'"
+        if self._eleven_response:
+            prior_lines += f"\neleven just said: '{self._eleven_response}'"
+        if self._will_response:
+            prior_lines += f"\nwill just said: '{self._will_response}'"
         return (
             f"Current investigation - Round {game_state.round}/{game_state.max_rounds}\n"
             "One member of this 3-person team is a hidden saboteur. You don't know who.\n\n"

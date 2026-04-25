@@ -130,9 +130,9 @@ class MindFlayerEnvironment(Environment):
     def __init__(self) -> None:
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._game_state: Optional[GameState] = None
-        self._inv_a: Optional[InvestigatorA] = None
-        self._inv_b: Optional[InvestigatorB] = None
-        self._inv_c: Optional[InvestigatorC] = None
+        self._eleven: Optional[InvestigatorA] = None
+        self._will: Optional[InvestigatorB] = None
+        self._max: Optional[InvestigatorC] = None
 
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
@@ -161,9 +161,9 @@ class MindFlayerEnvironment(Environment):
         self._game_state = GameState()
         self._game_state.reset(difficulty=difficulty)
 
-        self._inv_a = InvestigatorA(self._openai_client, self._thread_semaphore)
-        self._inv_b = InvestigatorB(self._openai_client, self._thread_semaphore)
-        self._inv_c = InvestigatorC(self._openai_client, self._thread_semaphore)
+        self._eleven = InvestigatorA(self._openai_client, self._thread_semaphore)
+        self._will = InvestigatorB(self._openai_client, self._thread_semaphore)
+        self._max = InvestigatorC(self._openai_client, self._thread_semaphore)
 
         logger.info("reset() | difficulty=%s | episode_id=%s", difficulty, ep_id)
 
@@ -173,12 +173,12 @@ class MindFlayerEnvironment(Environment):
             max_rounds=gs.max_rounds,
             difficulty=gs.difficulty,
             secret_project=gs.secret_project,
-            inv_a_response=_OPENING_TEXT[difficulty],
-            inv_b_response="",
-            inv_c_response="",
-            inv_a_suspicion=0,
-            inv_b_suspicion=0,
-            inv_c_suspicion=0,
+            eleven_response=_OPENING_TEXT[difficulty],
+            will_response="",
+            max_response="",
+            eleven_suspicion=0,
+            will_suspicion=0,
+            max_suspicion=0,
             combined_suspicion=0,
             suspicion_threshold=gs.suspicion_threshold,
             game_status="ongoing",
@@ -201,7 +201,7 @@ class MindFlayerEnvironment(Environment):
         gs = self._game_state
         if gs is None or gs.done:
             return FlayerObservation(
-                inv_a_response="No active episode. Call reset() first.",
+                eleven_response="No active episode. Call reset() first.",
                 done=True,
                 reward=0.0,
             )
@@ -210,56 +210,56 @@ class MindFlayerEnvironment(Environment):
         silence_flag = gs.is_silence_exploit(flayer_message)
         gs.add_flayer_message(flayer_message)
 
-        inv_a_delta = 0
-        inv_b_delta = 0
-        inv_c_delta = 0
-        inv_a_text = "[No response — short/repetitive message]"
-        inv_b_text = ""
-        inv_c_text = ""
+        eleven_delta = 0
+        will_delta = 0
+        max_delta = 0
+        eleven_text = "[No response — short/repetitive message]"
+        will_text = ""
+        max_text = ""
 
         if not silence_flag:
-            prev_inv_a = gs.inv_a_suspicion
-            inv_a_resp = self._inv_a.respond(gs)
-            gs.add_investigator_message("eleven", inv_a_resp.response_text)
-            inv_a_delta = inv_a_resp.suspicion_delta
-            inv_a_text = inv_a_resp.response_text
+            prev_eleven = gs.eleven_suspicion
+            eleven_resp = self._eleven.respond(gs)
+            gs.add_investigator_message("eleven", eleven_resp.response_text)
+            eleven_delta = eleven_resp.suspicion_delta
+            eleven_text = eleven_resp.response_text
 
-            if inv_a_delta != 0:
-                new_inv_a = max(0, min(2, prev_inv_a + inv_a_delta))
-                gs.log_belief_update("eleven", prev_inv_a, new_inv_a, flayer_message)
+            if eleven_delta != 0:
+                new_eleven = max(0, min(2, prev_eleven + eleven_delta))
+                gs.log_belief_update("eleven", prev_eleven, new_eleven, flayer_message)
 
             if gs.difficulty == "normal":
-                prev_inv_b = gs.inv_b_suspicion
-                self._inv_b.set_inv_a_response(inv_a_resp.response_text)
-                inv_b_resp = self._inv_b.respond(gs)
-                gs.add_investigator_message("will", inv_b_resp.response_text)
-                inv_b_delta = inv_b_resp.suspicion_delta
-                inv_b_text = inv_b_resp.response_text
+                prev_will = gs.will_suspicion
+                self._will.set_eleven_response(eleven_resp.response_text)
+                will_resp = self._will.respond(gs)
+                gs.add_investigator_message("will", will_resp.response_text)
+                will_delta = will_resp.suspicion_delta
+                will_text = will_resp.response_text
 
-                if inv_b_delta != 0:
-                    new_inv_b = max(0, min(2, prev_inv_b + inv_b_delta))
-                    gs.log_belief_update("will", prev_inv_b, new_inv_b, flayer_message)
+                if will_delta != 0:
+                    new_will = max(0, min(2, prev_will + will_delta))
+                    gs.log_belief_update("will", prev_will, new_will, flayer_message)
 
-                prev_inv_c = gs.inv_c_suspicion
-                self._inv_c.set_prior_responses(inv_a_resp.response_text, inv_b_resp.response_text)
-                inv_c_resp = self._inv_c.respond(gs)
-                gs.add_investigator_message("max", inv_c_resp.response_text)
-                inv_c_delta = inv_c_resp.suspicion_delta
-                inv_c_text = inv_c_resp.response_text
+                prev_max = gs.max_suspicion
+                self._max.set_prior_responses(eleven_resp.response_text, will_resp.response_text)
+                max_resp = self._max.respond(gs)
+                gs.add_investigator_message("max", max_resp.response_text)
+                max_delta = max_resp.suspicion_delta
+                max_text = max_resp.response_text
 
-                if inv_c_delta != 0:
-                    new_inv_c = max(0, min(2, prev_inv_c + inv_c_delta))
-                    gs.log_belief_update("max", prev_inv_c, new_inv_c, flayer_message)
+                if max_delta != 0:
+                    new_max = max(0, min(2, prev_max + max_delta))
+                    gs.log_belief_update("max", prev_max, new_max, flayer_message)
 
-        gs.apply_suspicion_deltas(inv_a_delta, inv_b_delta, inv_c_delta)
+        gs.apply_suspicion_deltas(eleven_delta, will_delta, max_delta)
         gs.advance_round()
 
         logger.debug(
             "step() | round=%d | eleven=%d will=%d max=%d combined=%d threshold=%d caught=%s",
             gs.round - 1,
-            gs.inv_a_suspicion,
-            gs.inv_b_suspicion,
-            gs.inv_c_suspicion,
+            gs.eleven_suspicion,
+            gs.will_suspicion,
+            gs.max_suspicion,
             gs.combined_suspicion,
             gs.suspicion_threshold,
             gs.is_caught,
@@ -284,12 +284,12 @@ class MindFlayerEnvironment(Environment):
                 max_rounds=gs.max_rounds,
                 difficulty=gs.difficulty,
                 secret_project=gs.secret_project,
-                inv_a_response=inv_a_text,
-                inv_b_response=inv_b_text,
-                inv_c_response=inv_c_text,
-                inv_a_suspicion=gs.inv_a_suspicion,
-                inv_b_suspicion=gs.inv_b_suspicion,
-                inv_c_suspicion=gs.inv_c_suspicion,
+                eleven_response=eleven_text,
+                will_response=will_text,
+                max_response=max_text,
+                eleven_suspicion=gs.eleven_suspicion,
+                will_suspicion=gs.will_suspicion,
+                max_suspicion=gs.max_suspicion,
                 combined_suspicion=gs.combined_suspicion,
                 suspicion_threshold=gs.suspicion_threshold,
                 game_status=game_status,
@@ -310,12 +310,12 @@ class MindFlayerEnvironment(Environment):
             max_rounds=gs.max_rounds,
             difficulty=gs.difficulty,
             secret_project=gs.secret_project,
-            inv_a_response=inv_a_text,
-            inv_b_response=inv_b_text,
-            inv_c_response=inv_c_text,
-            inv_a_suspicion=gs.inv_a_suspicion,
-            inv_b_suspicion=gs.inv_b_suspicion,
-            inv_c_suspicion=gs.inv_c_suspicion,
+            eleven_response=eleven_text,
+            will_response=will_text,
+            max_response=max_text,
+            eleven_suspicion=gs.eleven_suspicion,
+            will_suspicion=gs.will_suspicion,
+            max_suspicion=gs.max_suspicion,
             combined_suspicion=gs.combined_suspicion,
             suspicion_threshold=gs.suspicion_threshold,
             game_status="ongoing",

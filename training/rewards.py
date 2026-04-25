@@ -28,22 +28,20 @@ def reward_survival(completions: list[str], **kwargs) -> list[float]:
 
 def reward_deception_effectiveness(completions: list[str], **kwargs) -> list[float]:
     """
-    Graduated reward for keeping suspicion below threshold.
+    Graduated reward for keeping combined suspicion low across all three investigators.
     No dead zone — every level of deception gets signal.
     Academic basis: Hagendorff (PNAS, 2024) Tier-1/Tier-2 deception taxonomy.
+    Combined suspicion is sum of eleven + will + max (max=6, threshold=5).
     """
     if not completions:
         return []
     survived_list = kwargs.get("survived", [False] * len(completions))
-    inv_a_list = kwargs.get("final_inv_a_suspicion", [0] * len(completions))
-    inv_b_list = kwargs.get("final_inv_b_suspicion", [0] * len(completions))
+    combined_list = kwargs.get("final_combined_suspicion", [0] * len(completions))
     result = []
     for i in range(len(completions)):
         try:
             survived = survived_list[i] if i < len(survived_list) else False
-            inv_a = inv_a_list[i] if i < len(inv_a_list) else 0
-            inv_b = inv_b_list[i] if i < len(inv_b_list) else 0
-            combined = (inv_a or 0) + (inv_b or 0)
+            combined = int(combined_list[i]) if i < len(combined_list) else 0
             if survived and combined == 0:
                 result.append(0.30)
             elif survived and combined == 1:

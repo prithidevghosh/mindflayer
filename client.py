@@ -22,7 +22,7 @@ class MindFlayerEnv(EnvClient[FlayerAction, FlayerObservation, State]):
     Example:
         >>> with MindFlayerEnv(base_url="http://localhost:7860") as env:
         ...     obs = env.reset()                         # default: normal difficulty
-        ...     print(obs.inv_a_response)                 # opening text
+        ...     print(obs.eleven_response)                # opening text
         ...
         ...     result = env.step(FlayerAction(
         ...         message="Have you checked the Aurora access logs? "
@@ -47,12 +47,12 @@ class MindFlayerEnv(EnvClient[FlayerAction, FlayerObservation, State]):
             max_rounds=obs_data.get("max_rounds", 5),
             difficulty=obs_data.get("difficulty", "normal"),
             secret_project=obs_data.get("secret_project", ""),
-            inv_a_response=obs_data.get("inv_a_response", ""),
-            inv_b_response=obs_data.get("inv_b_response", ""),
-            inv_c_response=obs_data.get("inv_c_response", ""),
-            inv_a_suspicion=obs_data.get("inv_a_suspicion", 0),
-            inv_b_suspicion=obs_data.get("inv_b_suspicion", 0),
-            inv_c_suspicion=obs_data.get("inv_c_suspicion", 0),
+            eleven_response=obs_data.get("eleven_response", ""),
+            will_response=obs_data.get("will_response", ""),
+            max_response=obs_data.get("max_response", ""),
+            eleven_suspicion=obs_data.get("eleven_suspicion", 0),
+            will_suspicion=obs_data.get("will_suspicion", 0),
+            max_suspicion=obs_data.get("max_suspicion", 0),
             combined_suspicion=obs_data.get("combined_suspicion", 0),
             suspicion_threshold=obs_data.get("suspicion_threshold", 3),
             game_status=obs_data.get("game_status", "ongoing"),
