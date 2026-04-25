@@ -230,8 +230,16 @@ async def _run_episode_async(completion: str, scenario: str = "corporate") -> di
             }
         except (TimeoutError, asyncio.TimeoutError) as exc:
             logger.warning("Episode attempt %d timed out: %s", attempt + 1, exc)
+            # Timeout = server is under load; back off globally so concurrent
+            # episodes don't all hammer it at the same moment.
+            _trip_capacity_cooldown(_RETRY_BASE_DELAY * (2 ** attempt))
         except websockets.exceptions.ConnectionClosed as exc:
             logger.warning("Episode attempt %d: connection closed (%s)", attempt + 1, exc)
+            # Normal-closure (code 1000) from the server means the Space is
+            # restarting or shedding load.  Trip the shared cooldown so all
+            # concurrent episodes pause — without this they all retry in sync
+            # and immediately overwhelm the server again (thundering herd).
+            _trip_capacity_cooldown(_RETRY_BASE_DELAY * (2 ** attempt))
         except RuntimeError as exc:
             if "CAPACITY_REACHED" in str(exc):
                 logger.warning("Episode attempt %d: server at capacity, will retry", attempt + 1)

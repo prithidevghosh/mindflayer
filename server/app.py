@@ -40,11 +40,14 @@ except ImportError:
     from server.mindflayer_environment import MindFlayerEnvironment
 
 
+_MAX_SESSIONS = int(os.environ.get("MINDFLAYER_MAX_SESSIONS", "16"))
+
 app = create_app(
     MindFlayerEnvironment,
     FlayerAction,
     FlayerObservation,
     env_name="mindflayer",
+    max_concurrent_envs=_MAX_SESSIONS,
 )
 
 
