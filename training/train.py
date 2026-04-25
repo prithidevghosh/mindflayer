@@ -351,8 +351,7 @@ def main():
         logging_steps=10,
         save_steps=50,
         save_total_limit=2,
-        report_to="wandb",
-        run_name=f"mindflayer-grpo-{len(_SCENARIOS)}scenarios",
+        report_to="none",
     )
 
     trainer = GRPOTrainer(
