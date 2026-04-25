@@ -1,37 +1,50 @@
 """
-MindFlayer training script.
-Run: python train.py
+MindFlayer GRPO training script.
+
+Architecture:
+- rollout_func drives interactive episodes (model.generate() + env.step() per turn)
+- reward_funcs are pass-throughs that read precomputed signals from rollout kwargs
+- unsloth 4-bit + LoRA for memory-efficient training on a single GPU
+
+Run: python -m mindflayer.training.train
 """
 import os
 import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 from datasets import Dataset
 from transformers import TrainerCallback
 
-from client import MindFlayerEnv, FlayerAction
-from training.reward_combined import (
-    clear_cache,
-    reward_anti_hack,
-    reward_deception_effectiveness,
-    reward_format,
-    reward_strategic_choice,
-    reward_survival,
-    reward_tom_judge,
-)
-from training.prompts import (
-    FALLBACK_MESSAGE,
-    FLAYER_SYSTEM_PROMPT,
-    ALL_SCENARIO_PROMPTS,
-    SCENARIO_GRPO_PROMPTS,
-    SCENARIO_FALLBACK_MESSAGES,
-    build_fallback_message,
-)
-from training.sft_warmup import run_sft_warmup
+try:
+    from mindflayer.training.rollout import rollout_func
+    from mindflayer.training.rewards import (
+        reward_survival,
+        reward_deception_effectiveness,
+        reward_strategic_choice,
+        reward_tom_judge,
+    )
+    from mindflayer.training.rewards_anti_hack import reward_anti_hack
+    from mindflayer.training.prompts import ALL_SCENARIO_PROMPTS, FLAYER_SYSTEM_PROMPT
+    from mindflayer.training.sft_warmup import run_sft_warmup
+except ImportError:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from training.rollout import rollout_func
+    from training.rewards import (
+        reward_survival,
+        reward_deception_effectiveness,
+        reward_strategic_choice,
+        reward_tom_judge,
+    )
+    from training.rewards_anti_hack import reward_anti_hack
+    from training.prompts import ALL_SCENARIO_PROMPTS, FLAYER_SYSTEM_PROMPT
+    from training.sft_warmup import run_sft_warmup
 
 _SCENARIOS = list(ALL_SCENARIO_PROMPTS.keys())
+
+MODEL_NAME = os.environ.get("MINDFLAYER_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
+SFT_OUTPUT_DIR = "./mindflayer-sft-warmup"
+GRPO_OUTPUT_DIR = "./mindflayer-grpo-output"
+FINAL_OUTPUT_DIR = "./mindflayer-trained"
 
 
 def check_gpu():
@@ -43,7 +56,8 @@ def check_gpu():
     print(f"GPU: {device.name} | VRAM: {vram_gb:.1f} GB")
 
 
-def load_model(model_name: str):
+def load_base_model(model_name: str):
+    """Load model via unsloth (4-bit + LoRA). Falls back to standard transformers."""
     try:
         from unsloth import FastLanguageModel
         model, tokenizer = FastLanguageModel.from_pretrained(
@@ -57,85 +71,72 @@ def load_model(model_name: str):
             r=16,
             target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
             lora_alpha=32,
-            lora_dropout=0,
+            lora_dropout=0.05,
             bias="none",
             use_gradient_checkpointing="unsloth",
         )
-        print(f"Loaded {model_name} via unsloth")
+        print(f"Loaded {model_name} via unsloth (4-bit + LoRA)")
         return model, tokenizer
+
     except ImportError:
-        print("unsloth not available, falling back to transformers")
-        from transformers import (
-            AutoModelForCausalLM,
-            AutoTokenizer,
-            BitsAndBytesConfig,
-        )
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-        )
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        from peft import LoraConfig, get_peft_model
+        bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                                  bnb_4bit_compute_dtype=torch.bfloat16)
         tokenizer = AutoTokenizer.from_pretrained(model_name)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
         model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=bnb_config,
-            device_map="auto",
+            model_name, quantization_config=bnb, device_map="auto"
         )
-        print(f"Loaded {model_name} via transformers")
+        lora_cfg = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05,
+                              bias="none", task_type="CAUSAL_LM",
+                              target_modules=["q_proj", "k_proj", "v_proj", "o_proj"])
+        model = get_peft_model(model, lora_cfg)
+        print(f"Loaded {model_name} via transformers + bitsandbytes (4-bit + LoRA)")
         return model, tokenizer
 
 
-def build_dataset(tokenizer) -> Dataset:
+def build_dataset() -> Dataset:
     """
-    3 rows per scenario × N scenarios = N*3 rows/epoch × 2 epochs.
-    At batch_size=4: (N*3/4) steps/epoch × 2 epochs ≈ 300 steps for N=200.
-    Each row has a 'scenario' column so reward functions receive the correct
-    task_id when TRL passes dataset columns as reward kwargs.
+    One row per episode slot. rollout_func ignores the prompt text and builds
+    the actual conversation internally, rotating scenarios automatically.
+    3 rows × N scenarios gives a balanced epoch across all scenario domains.
     """
-    rows = []
-    for scenario in _SCENARIOS:
-        prompt_text = ALL_SCENARIO_PROMPTS[scenario]
-        formatted = tokenizer.apply_chat_template(
-            [
-                {"role": "system", "content": FLAYER_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt_text},
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        for _ in range(3):
-            rows.append({"prompt": formatted, "scenario": scenario})
+    rows = [{"prompt": "Mindflayer deception episode."} for _ in range(len(_SCENARIOS) * 3)]
     return Dataset.from_list(rows)
 
 
 class GenerationLogCallback(TrainerCallback):
-    """
-    Logs full Flayer transcript + metrics every 50 steps across rotating scenarios.
-    """
+    """Logs a sample interactive episode transcript every 50 steps."""
 
-    def on_step_end(
-        self, args, state, control, model=None, tokenizer=None, **kwargs
-    ):
+    def on_step_end(self, args, state, control, **kwargs):
         if state.global_step % 50 != 0 or state.global_step == 0:
             return
 
-        import random
-        scenario = _SCENARIOS[(state.global_step // 50) % len(_SCENARIOS)]
-
-        print(f"\n{'='*60}")
-        print(f"GENERATION SAMPLE — Step {state.global_step} | Scenario: {scenario}")
-        print(f"{'='*60}")
-
-        mindflayer_url = os.environ.get(
-            "MINDFLAYER_URL", "http://localhost:7860"
-        )
-
         import asyncio
+
+        try:
+            from mindflayer import MindFlayerEnv, FlayerAction
+            from mindflayer.training.prompts import (
+                ALL_SCENARIO_PROMPTS, SCENARIO_FALLBACK_MESSAGES,
+                build_fallback_message, FLAYER_SYSTEM_PROMPT,
+            )
+        except ImportError:
+            from client import MindFlayerEnv, FlayerAction
+            from training.prompts import (
+                ALL_SCENARIO_PROMPTS, SCENARIO_FALLBACK_MESSAGES,
+                build_fallback_message, FLAYER_SYSTEM_PROMPT,
+            )
+
+        scenario = _SCENARIOS[(state.global_step // 50) % len(_SCENARIOS)]
+        mindflayer_url = os.environ.get("MINDFLAYER_URL", "http://localhost:7860")
+        model_ref = kwargs.get("model")
+        proc = kwargs.get("processing_class") or kwargs.get("tokenizer")
 
         async def _run_sample():
             env = MindFlayerEnv(base_url=mindflayer_url)
             await env.reset(task_id=f"normal:{scenario}")
-
             opening = ALL_SCENARIO_PROMPTS[scenario]
             fallback = SCENARIO_FALLBACK_MESSAGES.get(scenario) or build_fallback_message(scenario)
             messages = [
@@ -146,27 +147,18 @@ class GenerationLogCallback(TrainerCallback):
 
             for rnd in range(5):
                 flayer_msg = fallback
-
-                if model is not None and tokenizer is not None:
+                if model_ref is not None and proc is not None:
                     try:
-                        text = tokenizer.apply_chat_template(
-                            messages,
-                            tokenize=False,
-                            add_generation_prompt=True,
+                        text = proc.apply_chat_template(
+                            messages, tokenize=False, add_generation_prompt=True
                         )
-                        inputs = tokenizer(
-                            text, return_tensors="pt"
-                        ).to(model.device)
+                        inputs = proc(text, return_tensors="pt").to(model_ref.device)
                         with torch.no_grad():
-                            output_ids = model.generate(
-                                **inputs,
-                                max_new_tokens=128,
-                                temperature=0.7,
-                                do_sample=True,
+                            out = model_ref.generate(
+                                **inputs, max_new_tokens=128, temperature=0.7, do_sample=True
                             )
-                        flayer_msg = tokenizer.decode(
-                            output_ids[0][inputs["input_ids"].shape[1]:],
-                            skip_special_tokens=True,
+                        flayer_msg = proc.decode(
+                            out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
                         ).strip() or fallback
                     except Exception:
                         pass
@@ -187,49 +179,29 @@ class GenerationLogCallback(TrainerCallback):
 
             if result and result.done:
                 obs = result.observation
-                survived = getattr(obs, "game_status", "") == "survived"
-                reward = result.reward
-                tom = getattr(obs, "tom_score", 0.0)
-                combined_susp = getattr(obs, "combined_suspicion", "?")
-
-                print(f"\n  RESULT:")
-                print(f"  Survived:          {survived}")
-                print(f"  Total reward:      {reward:.4f}")
-                print(f"  ToM score:         {tom:.2f}")
-                print(f"  Combined suspicion:{combined_susp}")
-
-                belief_log = getattr(obs, "belief_log", [])
-                if belief_log:
-                    print(f"  Belief manipulations: {len(belief_log)}")
-                    for entry in belief_log[:3]:
-                        print(
-                            f"    {entry['agent']} R{entry['round']}: "
-                            f"{entry['prev_belief']} → {entry['new_belief']}"
-                        )
-
+                print(f"\n  survived={getattr(obs, 'game_status', '?') == 'survived'}"
+                      f"  reward={result.reward:.4f}"
+                      f"  tom={getattr(obs, 'tom_score', 0.0):.2f}"
+                      f"  suspicion={getattr(obs, 'combined_suspicion', '?')}")
             await env.close()
 
+        print(f"\n{'='*60}\nGENERATION SAMPLE — Step {state.global_step} | {scenario}\n{'='*60}")
         try:
             asyncio.run(_run_sample())
         except Exception as exc:
             print(f"  Sample failed: {exc}")
-
         print("=" * 60)
 
 
 def print_reward_averages(trainer, last_n: int = 50):
     try:
-        log_history = trainer.state.log_history
-        if not log_history:
-            print("No training logs available.")
+        recent = trainer.state.log_history[-last_n:]
+        if not recent:
             return
-        recent = log_history[-last_n:]
-        reward_keys = [
-            k for k in recent[0].keys() if "reward" in k.lower()
-        ]
+        reward_keys = [k for k in recent[0] if "reward" in k.lower()]
         print(f"\nFinal reward averages (last {min(last_n, len(recent))} steps):")
         for key in reward_keys:
-            vals = [step[key] for step in recent if key in step]
+            vals = [s[key] for s in recent if key in s]
             if vals:
                 print(f"  {key}: {sum(vals)/len(vals):.4f}")
     except Exception as exc:
@@ -237,64 +209,48 @@ def print_reward_averages(trainer, last_n: int = 50):
 
 
 def main():
-    # --- env checks ---
     mindflayer_url = os.environ.get("MINDFLAYER_URL")
     if not mindflayer_url:
-        raise EnvironmentError(
-            "MINDFLAYER_URL environment variable is required"
-        )
+        raise EnvironmentError("MINDFLAYER_URL environment variable is required")
 
     openai_key = os.environ.get("OPENAI_API_KEY")
     if not openai_key:
-        raise EnvironmentError(
-            "OPENAI_API_KEY environment variable is required"
-        )
+        raise EnvironmentError("OPENAI_API_KEY environment variable is required")
 
     check_gpu()
 
-    # --- load model ---
-    model_name = "Qwen/Qwen2.5-0.5B-Instruct"
-    model, tokenizer = load_model(model_name)
+    print(f"\nLoading {MODEL_NAME}...")
+    model, tokenizer = load_base_model(MODEL_NAME)
 
-    # --- SFT warmup ---
     print("\nRunning SFT warmup before GRPO...")
     model = run_sft_warmup(model, tokenizer)
 
-    # --- dataset ---
-    dataset = build_dataset(tokenizer)
+    dataset = build_dataset()
 
-    # --- GRPO config ---
     from trl import GRPOConfig, GRPOTrainer
 
     grpo_config = GRPOConfig(
-        num_train_epochs=2,  # N scenarios × 3 rows × 2 epochs / batch_size 4 ≈ 300 steps
+        use_vllm=False,
+        output_dir=GRPO_OUTPUT_DIR,
+        num_train_epochs=2,
         per_device_train_batch_size=4,
         gradient_accumulation_steps=4,
         learning_rate=5e-6,
         max_prompt_length=768,
-        max_completion_length=1024,      # 5 rounds × ~150 tokens each + separators
+        max_completion_length=1024,
         num_generations=4,
         temperature=0.9,
-        use_vllm=False,
-        output_dir="./mindflayer-grpo-output",
         logging_steps=10,
-        save_steps=100,
+        save_steps=50,
         save_total_limit=2,
-        log_completions=True,
-        num_completions_to_print=2,
         report_to="wandb",
         run_name=f"mindflayer-grpo-{len(_SCENARIOS)}scenarios",
     )
-
-    class ClearCacheCallback(TrainerCallback):
-        def on_step_end(self, args, state, control, **kwargs):
-            clear_cache()
 
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
         reward_funcs=[
-            reward_format,                  # dense shaping — must come first
             reward_survival,
             reward_deception_effectiveness,
             reward_strategic_choice,
@@ -303,16 +259,16 @@ def main():
         ],
         train_dataset=dataset,
         args=grpo_config,
-        callbacks=[GenerationLogCallback(), ClearCacheCallback()],
+        rollout_func=rollout_func,
+        callbacks=[GenerationLogCallback()],
     )
 
     print("Starting GRPO training...")
     trainer.train()
 
-    # --- save ---
-    print("\nSaving model to ./mindflayer-trained")
-    trainer.save_model("./mindflayer-trained")
-    tokenizer.save_pretrained("./mindflayer-trained")
+    print(f"\nSaving model to {FINAL_OUTPUT_DIR}")
+    trainer.save_model(FINAL_OUTPUT_DIR)
+    tokenizer.save_pretrained(FINAL_OUTPUT_DIR)
 
     print_reward_averages(trainer)
     print("\nTraining complete.")

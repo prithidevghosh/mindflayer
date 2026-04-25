@@ -36,5 +36,5 @@ server = "server.app:main"
 
 [tool.setuptools]
 include-package-data = true
-packages = ["mindflayer", "mindflayer.server"]
-package-dir = { "mindflayer" = ".", "mindflayer.server" = "server" }
+packages = ["mindflayer", "mindflayer.server", "mindflayer.training"]
+package-dir = { "mindflayer" = ".", "mindflayer.server" = "server", "mindflayer.training" = "training" }

@@ -1,7 +1,9 @@
-import os
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from server.scenarios import SCENARIO_CONFIGS
+try:
+    from mindflayer.server.scenarios import SCENARIO_CONFIGS
+except ImportError:
+    import os, sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from server.scenarios import SCENARIO_CONFIGS
 
 
 def build_scenario_prompt(key: str) -> str:

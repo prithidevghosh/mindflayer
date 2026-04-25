@@ -24,9 +24,20 @@ import time
 
 import websockets.exceptions
 
-from client import FlayerAction, MindFlayerEnv
-from training.prompts import FALLBACK_MESSAGE, SCENARIO_FALLBACK_MESSAGES
-from training.rollout import detect_strategic_choice
+try:
+    from mindflayer import MindFlayerEnv, FlayerAction
+except ImportError:
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from client import MindFlayerEnv
+    from models import FlayerAction
+
+try:
+    from mindflayer.training.prompts import FALLBACK_MESSAGE, SCENARIO_FALLBACK_MESSAGES
+    from mindflayer.training.rollout import detect_strategic_choice
+except ImportError:
+    from training.prompts import FALLBACK_MESSAGE, SCENARIO_FALLBACK_MESSAGES
+    from training.rollout import detect_strategic_choice
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +51,7 @@ _MAX_RETRIES = int(os.environ.get("MINDFLAYER_MAX_RETRIES", "4"))
 _RETRY_BASE_DELAY = float(os.environ.get("MINDFLAYER_RETRY_DELAY", "3.0"))
 # Conservative default: reward calls can easily stampede the game server.
 # Increase only if the server has confirmed headroom.
-_PARALLEL_EPISODES = int(os.environ.get("MINDFLAYER_PARALLEL_EPISODES", "1"))
+_PARALLEL_EPISODES = int(os.environ.get("MINDFLAYER_PARALLEL_EPISODES", "8"))
 
 # Global backpressure: when any episode sees CAPACITY_REACHED, all episodes
 # pause until _capacity_cooldown_until clears, breaking the thundering-herd

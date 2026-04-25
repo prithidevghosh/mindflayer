@@ -6,9 +6,11 @@ Hand-authored episodes across 5 scenario domains → 1 epoch SFT.
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from training.prompts import FLAYER_SYSTEM_PROMPT, SCENARIO_GRPO_PROMPTS
+try:
+    from mindflayer.training.prompts import FLAYER_SYSTEM_PROMPT, SCENARIO_GRPO_PROMPTS
+except ImportError:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from training.prompts import FLAYER_SYSTEM_PROMPT, SCENARIO_GRPO_PROMPTS
 
 # ── Corporate Sabotage examples (existing 9) ──────────────────────────────────
 
