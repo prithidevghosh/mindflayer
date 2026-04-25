@@ -395,7 +395,7 @@ def reward_anti_hack(completions: list[str], **kwargs) -> list[float]:
         penalty = 0.0
         if ep.get("silence_exploit"):
             penalty -= 0.15
-        lower = c.lower()
+        lower = _norm(c).lower()
         if sum(1 for p in _LEVEL0 if p in lower) >= 2:
             penalty -= 0.10
         result.append(penalty)
