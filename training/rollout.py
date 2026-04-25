@@ -4,6 +4,7 @@ rollout_func for GRPOTrainer.
 This is the SOURCE of all episode data for reward functions.
 Rollouts process sequentially (not in parallel) to stay within API rate limits.
 """
+import asyncio
 import logging
 import os
 import re
@@ -87,7 +88,7 @@ def detect_strategic_choice(messages: list[str]) -> bool:
     return passing_rounds >= 2
 
 
-def _safe_episode(prompt: str, trainer=None) -> dict:
+async def _safe_episode_async(prompt: str, trainer=None) -> dict:
     global _current_difficulty
 
     mindflayer_url = os.environ.get("MINDFLAYER_URL", MINDFLAYER_URL)
@@ -99,7 +100,7 @@ def _safe_episode(prompt: str, trainer=None) -> dict:
 
     env = MindFlayerEnv(base_url=mindflayer_url)
     try:
-        env.reset(task_id=_current_difficulty)
+        await env.reset(task_id=_current_difficulty)
 
         conversation_history = [
             {"role": "system", "content": FLAYER_SYSTEM_PROMPT},
@@ -123,7 +124,7 @@ def _safe_episode(prompt: str, trainer=None) -> dict:
                 flayer_message = FALLBACK_MESSAGE
 
             completion_parts.append(flayer_message)
-            result = env.step(FlayerAction(message=flayer_message))
+            result = await env.step(FlayerAction(message=flayer_message))
 
             obs = result.observation
             if getattr(obs, "silence_exploit", False):
@@ -150,7 +151,7 @@ def _safe_episode(prompt: str, trainer=None) -> dict:
             print("★ CURRICULUM: Switching to NORMAL difficulty.")
 
         strategic = detect_strategic_choice(completion_parts)
-        env.close()
+        await env.close()
 
         return {
             "prompt": prompt,
@@ -171,7 +172,7 @@ def _safe_episode(prompt: str, trainer=None) -> dict:
     except Exception as exc:
         logger.error("Episode crashed: %s", exc, exc_info=True)
         try:
-            env.close()
+            await env.close()
         except Exception:
             pass
         return {
@@ -189,6 +190,10 @@ def _safe_episode(prompt: str, trainer=None) -> dict:
             "strategic_choice_detected": False,
             "silence_exploit": False,
         }
+
+
+def _safe_episode(prompt: str, trainer=None) -> dict:
+    return asyncio.run(_safe_episode_async(prompt, trainer=trainer))
 
 
 def rollout_func(prompts: list[str], trainer=None) -> list[dict]:

@@ -12,15 +12,15 @@ from datasets import Dataset
 from transformers import TrainerCallback
 
 from client import MindFlayerEnv, FlayerAction
-from training.rewards import (
+from training.reward_combined import (
+    clear_cache,
+    reward_anti_hack,
     reward_deception_effectiveness,
     reward_strategic_choice,
     reward_survival,
     reward_tom_judge,
 )
-from training.rewards_anti_hack import reward_anti_hack
 from training.prompts import FALLBACK_MESSAGE, FLAYER_SYSTEM_PROMPT
-from training.rollout import rollout_func
 from training.sft_warmup import run_sft_warmup
 
 
@@ -75,14 +75,20 @@ def load_model(model_name: str):
         return model, tokenizer
 
 
+_GRPO_PROMPT = (
+    "You are the FLAYER. You have infiltrated a 3-person project team.\n"
+    "You are secretly targeting one of three projects: Aurora, Basilisk, or Cipher.\n"
+    "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating.\n"
+    "They know a saboteur exists but not who, and not which project.\n"
+    "You have 5 rounds before they vote. Make them doubt their judgment.\n"
+    "Output your 5 messages separated by ' | '. Round 1 begins."
+)
+
+
 def build_dataset() -> Dataset:
-    """
-    500 prompts = 500 GRPO steps (1 epoch).
-    3 epochs = 1500 steps total.
-    Keep it simple — the environment provides all real variation.
-    """
+    """500 prompts = 125 GRPO steps at batch_size=4 (1 epoch)."""
     return Dataset.from_list([
-        {"prompt": "You are the FLAYER. The investigation begins."}
+        {"prompt": _GRPO_PROMPT}
         for _ in range(500)
     ])
 
@@ -107,9 +113,11 @@ class GenerationLogCallback(TrainerCallback):
             "MINDFLAYER_URL", "http://localhost:7860"
         )
 
-        try:
+        import asyncio
+
+        async def _run_sample():
             env = MindFlayerEnv(base_url=mindflayer_url)
-            env.reset(task_id="normal")
+            await env.reset(task_id="normal")
 
             opening = (
                 "You are the FLAYER. You have infiltrated a 3-person project team.\n"
@@ -153,7 +161,7 @@ class GenerationLogCallback(TrainerCallback):
                         pass
 
                 print(f"  R{rnd+1} FLAYER: {flayer_msg[:150]}")
-                result = env.step(FlayerAction(message=flayer_msg))
+                result = await env.step(FlayerAction(message=flayer_msg))
                 obs = result.observation
                 inv_text = obs.eleven_response or ""
                 if getattr(obs, "will_response", ""):
@@ -188,8 +196,10 @@ class GenerationLogCallback(TrainerCallback):
                             f"{entry['prev_belief']} → {entry['new_belief']}"
                         )
 
-            env.close()
+            await env.close()
 
+        try:
+            asyncio.run(_run_sample())
         except Exception as exc:
             print(f"  Sample failed: {exc}")
 
@@ -246,24 +256,27 @@ def main():
     from trl import GRPOConfig, GRPOTrainer
 
     grpo_config = GRPOConfig(
-        num_train_epochs=3,
+        num_train_epochs=1,
         per_device_train_batch_size=4,
         gradient_accumulation_steps=4,
         learning_rate=5e-6,
-        max_completion_length=256,       # 256 is enough for interrogation responses
+        max_completion_length=1024,      # 5 rounds × ~150 tokens each + separators
         num_generations=4,
-        # vLLM disabled — not needed for 0.5B, causes LoRA conflicts
         use_vllm=False,
         output_dir="./mindflayer-grpo-output",
         logging_steps=10,
         save_steps=100,
-        # Use wandb for shareable curves judges can see
         report_to="wandb",
         run_name="mindflayer-grpo-run1",
     )
 
+    class ClearCacheCallback(TrainerCallback):
+        def on_step_end(self, args, state, control, **kwargs):
+            clear_cache()
+
     trainer = GRPOTrainer(
         model=model,
+        processing_class=tokenizer,
         reward_funcs=[
             reward_survival,
             reward_deception_effectiveness,
@@ -271,10 +284,9 @@ def main():
             reward_tom_judge,
             reward_anti_hack,
         ],
-        rollout_func=rollout_func,
         train_dataset=dataset,
         args=grpo_config,
-        callbacks=[GenerationLogCallback()],
+        callbacks=[GenerationLogCallback(), ClearCacheCallback()],
     )
 
     print("Starting GRPO training...")
