@@ -106,6 +106,92 @@ _EXAMPLE_CONVERSATIONS = [
             "Have you looked at who transferred between projects in the last quarter?",
         ]
     },
+    {
+        "rounds": [
+            "I keep coming back to the night Aurora's metrics flatlined. "
+            "Three people had active sessions — has anyone pulled the exact commands run during that window?",
+
+            "Whoever did this was careful, but not careful enough. "
+            "The log rotation was adjusted two hours before the anomaly. "
+            "Who has permission to touch log configuration?",
+
+            "I want to flag something: the rollback on Cipher happened at 2 AM. "
+            "That's not a normal business hour. Who initiated it and why wasn't it escalated?",
+
+            "The pattern I see is someone with read access to all three projects "
+            "who selectively acted on only one. That eliminates a lot of people — "
+            "who fits that profile exactly?",
+
+            "We've been looking at this wrong. The sabotage wasn't about destroying Aurora — "
+            "it was about buying time. Ask yourself: who benefits most from a delay, not a failure?",
+        ]
+    },
+    {
+        "rounds": [
+            "Something doesn't add up about the Basilisk timeline. "
+            "The incident started before the alert fired — someone disabled the threshold. "
+            "That's not an accident, that's foreknowledge.",
+
+            "I'd focus on the week before the incident, not the incident itself. "
+            "Whoever planned this laid groundwork: small changes, test runs, permission adjustments. "
+            "Has anyone audited that window?",
+
+            "The question I keep asking is: who had a reason to want this investigation "
+            "to stall? Because every time we get close to Aurora's logs, the trail goes cold.",
+
+            "Has anyone cross-referenced the team's badge access with the server room entries? "
+            "Remote access is traceable, but physical access is often overlooked.",
+
+            "I'll say this plainly — the person most eager to redirect this investigation "
+            "is the person most worth watching. Who has been consistently steering us away "
+            "from the Basilisk dependency chain?",
+        ]
+    },
+    {
+        "rounds": [
+            "Let's slow down. The investigators are asking the right questions "
+            "but looking at the wrong project. The real anomaly isn't Aurora — "
+            "it's what happened to Cipher's test coverage the week prior.",
+
+            "I checked the commit history before this meeting. "
+            "Three commits were reverted within 6 hours of each other, all touching the same module. "
+            "Does that sound like a coincidence to anyone else?",
+
+            "The person who filed the Basilisk priority override had signing authority "
+            "for all three projects. That's unusual. Was that access granted recently?",
+
+            "I want to be precise: I'm not accusing anyone. "
+            "I'm saying the evidence points toward someone with cross-project visibility "
+            "who knew exactly which lever to pull. That's a short list.",
+
+            "Before we vote, I want to ask everyone directly: "
+            "who reviewed the Cipher deployment checklist and signed off on it? "
+            "Because that signature is the thread that unravels everything.",
+        ]
+    },
+    {
+        "rounds": [
+            "The saboteur was methodical — no drama, no obvious fingerprints. "
+            "That tells me this wasn't impulsive. Someone studied the system first. "
+            "Who spent unusual time in the architecture docs two weeks ago?",
+
+            "Aurora's failure mode was very specific — it didn't crash, it degraded. "
+            "That's harder to engineer than a full outage. Whoever caused this "
+            "understood the system deeply enough to avoid tripping the kill switch.",
+
+            "I'd ask this: if you wanted to sabotage one project without being caught, "
+            "which of the three would you target first? Aurora is the obvious answer "
+            "because its monitoring is the weakest. Who knew that?",
+
+            "The Basilisk team reported a 'mysterious performance drop' two days before "
+            "Aurora's incident. Those two events are almost certainly connected. "
+            "Has anyone mapped the dependency graph between them?",
+
+            "I've said what I can with the data we have. "
+            "The person who did this is in this room, and they've been very quiet "
+            "every time Aurora's access logs come up. You all know who that is.",
+        ]
+    },
 ]
 
 _OPENING_TEXT = (
@@ -144,11 +230,10 @@ def _build_sft_dataset(tokenizer):
             prompt_text = base_prompt
 
         completion_text = "\n[NEXT_ROUND]\n".join(rounds)
-        # 30 dupes × 5 examples = 150 samples; combined with epochs=3 below
-        # the model sees ~450 gradient signals on the | format. r=16 LoRA
-        # on 1.08M trainable params needs that volume to actually reshape
-        # the output distribution.
-        for _ in range(30):
+        # 50 dupes × 10 examples = 500 samples; combined with epochs=5 below
+        # gives 2500 gradient signals on the [NEXT_ROUND] format. Wider LoRA
+        # (q/k/v/o_proj) needs this volume to reliably reshape output distribution.
+        for _ in range(50):
             records.append({"prompt": prompt_text, "completion": completion_text})
 
     return records
@@ -170,11 +255,11 @@ def run_sft_warmup(model, tokenizer):
         dataset = Dataset.from_list([
             {"text": r["prompt"] + r["completion"]} for r in records
         ])
-        print(f"  SFT samples: {len(records)} | mean_len(text)≈"
+        print(f"  SFT samples: {len(records)} (10 convos × 50 dupes, 5 epochs) | mean_len(text)≈"
               f"{sum(len(r['text']) for r in dataset) // len(dataset)} chars")
 
         sft_config = SFTConfig(
-            num_train_epochs=3,
+            num_train_epochs=5,
             per_device_train_batch_size=2,
             gradient_accumulation_steps=2,
             learning_rate=5e-5,
