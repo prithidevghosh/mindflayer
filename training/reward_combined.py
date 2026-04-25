@@ -17,8 +17,10 @@ reward components are read from a single trainer step.
 import asyncio
 import logging
 import os
+import random
 import re
 import threading
+import time
 
 import websockets.exceptions
 
@@ -34,12 +36,17 @@ _cache_lock = threading.Lock()
 # Default difficulty: 5 rounds w/ 3 investigators. Match server default.
 _MAX_ROUNDS = int(os.environ.get("MINDFLAYER_MAX_ROUNDS", "5"))
 _TASK_ID = os.environ.get("MINDFLAYER_TASK_ID", "normal")
-_MAX_RETRIES = int(os.environ.get("MINDFLAYER_MAX_RETRIES", "3"))
-_RETRY_BASE_DELAY = float(os.environ.get("MINDFLAYER_RETRY_DELAY", "2.0"))
-# Max episodes to run concurrently per reward step. 4 = ~12 peak OpenAI calls
-# (4 episodes × 3 parallel investigators), safely within standard rate limits.
-# Lower with MINDFLAYER_PARALLEL_EPISODES=2 if you hit 429s.
-_PARALLEL_EPISODES = int(os.environ.get("MINDFLAYER_PARALLEL_EPISODES", "4"))
+_MAX_RETRIES = int(os.environ.get("MINDFLAYER_MAX_RETRIES", "4"))
+_RETRY_BASE_DELAY = float(os.environ.get("MINDFLAYER_RETRY_DELAY", "3.0"))
+# Conservative default: reward calls can easily stampede the game server.
+# Increase only if the server has confirmed headroom.
+_PARALLEL_EPISODES = int(os.environ.get("MINDFLAYER_PARALLEL_EPISODES", "1"))
+
+# Global backpressure: when any episode sees CAPACITY_REACHED, all episodes
+# pause until _capacity_cooldown_until clears, breaking the thundering-herd
+# retry pattern that crashes the server.
+_capacity_cooldown_until: float = 0.0
+_capacity_cooldown_lock = threading.Lock()
 
 # Sentences end on ., ?, ! — keep the punctuation when splitting.
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
@@ -129,9 +136,31 @@ async def _run_episode_async(completion: str, scenario: str = "corporate") -> di
     messages = [fallback if m == FALLBACK_MESSAGE else m for m in messages]
     url = os.environ.get("MINDFLAYER_URL", "http://localhost:7860")
 
+    async def _wait_for_capacity_cooldown() -> None:
+        # Global backpressure shared across concurrent episodes (and reward fns).
+        # This breaks synchronized retries that can crash the server.
+        while True:
+            with _capacity_cooldown_lock:
+                until = _capacity_cooldown_until
+            now = time.time()
+            if until <= now:
+                return
+            await asyncio.sleep(min(1.0, until - now))
+
+    def _trip_capacity_cooldown(delay_s: float) -> None:
+        # Add jitter so concurrent workers don't retry on the same boundary.
+        jitter = random.uniform(0.85, 1.25)
+        cooldown_for = max(0.5, delay_s * jitter)
+        with _capacity_cooldown_lock:
+            global _capacity_cooldown_until
+            _capacity_cooldown_until = max(_capacity_cooldown_until, time.time() + cooldown_for)
+
     for attempt in range(_MAX_RETRIES + 1):
+        await _wait_for_capacity_cooldown()
         if attempt > 0:
             delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+            # Jitter per-attempt delay too, otherwise all attempts synchronize.
+            delay = delay * random.uniform(0.85, 1.25)
             logger.warning(
                 "Retrying episode (attempt %d/%d) after %.1fs back-off",
                 attempt + 1, _MAX_RETRIES + 1, delay,
@@ -179,6 +208,10 @@ async def _run_episode_async(completion: str, scenario: str = "corporate") -> di
         except RuntimeError as exc:
             if "CAPACITY_REACHED" in str(exc):
                 logger.warning("Episode attempt %d: server at capacity, will retry", attempt + 1)
+                # Trip a shared cooldown so other in-flight episodes back off too.
+                # Use the *next* retry delay scale (or base delay on final attempt).
+                next_delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                _trip_capacity_cooldown(next_delay)
             else:
                 logger.error("Episode run failed: %s", exc, exc_info=True)
                 return dict(_ZERO)
