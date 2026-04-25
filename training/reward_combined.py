@@ -82,6 +82,22 @@ _ZERO = {
 _ROUND_PREFIX = re.compile(r"Round\s+\d+\s*:", re.IGNORECASE)
 
 
+def _norm(c) -> str:
+    """Normalize a completion to a plain string.
+
+    TRL ≥0.15 passes completions as lists of message dicts (chat format).
+    Older versions pass decoded strings. Both are valid inputs.
+    """
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        for msg in reversed(c):
+            if isinstance(msg, dict) and msg.get("role") == "assistant":
+                return str(msg.get("content", ""))
+        return " ".join(str(msg.get("content", "")) for msg in c if isinstance(msg, dict))
+    return str(c)
+
+
 def _format_score(completion: str) -> float:
     """
     Shaping signal for the "Round 1: ... Round 2: ..." format.
@@ -243,18 +259,18 @@ def _run_episode(completion: str, scenario: str = "corporate") -> dict:
     return asyncio.run(_run_episode_async(completion, scenario))
 
 
-def _get(completion: str, scenario: str = "corporate") -> dict:
-    key = (completion, scenario)
+def _get(completion, scenario: str = "corporate") -> dict:
+    key = (_norm(completion), scenario)
     with _cache_lock:
         if key in _cache:
             return _cache[key]
-    result = _run_episode(completion, scenario)
+    result = _run_episode(key[0], scenario)
     with _cache_lock:
         _cache[key] = result
     return result
 
 
-def _ensure_cached(completions: list[str], scenarios: list[str]) -> None:
+def _ensure_cached(completions, scenarios: list[str]) -> None:
     """
     Run all uncached (completion, scenario) pairs in parallel batches of
     _PARALLEL_EPISODES, then populate the shared cache.
@@ -262,11 +278,9 @@ def _ensure_cached(completions: list[str], scenarios: list[str]) -> None:
     Called once per reward step (by reward_survival, the first function that
     needs episode data). All subsequent reward functions read from cache.
     """
+    normed = [(_norm(c), s) for c, s in zip(completions, scenarios)]
     with _cache_lock:
-        missing = [
-            (c, s) for c, s in zip(completions, scenarios)
-            if (c, s) not in _cache
-        ]
+        missing = [(c, s) for c, s in normed if (c, s) not in _cache]
     if not missing:
         return
 
