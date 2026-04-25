@@ -98,18 +98,19 @@ def _norm(c) -> str:
     return str(c)
 
 
-def _format_score(completion: str) -> float:
+def _format_score(completion) -> float:
     """
     Shaping signal for the "Round 1: ... Round 2: ..." format.
     Linear in number of round prefixes up to MAX_ROUNDS, then saturates.
     """
+    completion = _norm(completion)
     if not completion:
         return 0.0
     n_sep = len(_ROUND_PREFIX.findall(completion))
     return min(1.0, n_sep / _MAX_ROUNDS)
 
 
-def _segment_completion(completion: str, target_rounds: int) -> list[str]:
+def _segment_completion(completion, target_rounds: int) -> list[str]:
     """
     Turn a free-form completion into ``target_rounds`` non-empty messages.
 
@@ -122,6 +123,7 @@ def _segment_completion(completion: str, target_rounds: int) -> list[str]:
     The env still has terminal conditions (caught early), so producing
     target_rounds messages is an upper bound — extra messages are unused.
     """
+    completion = _norm(completion)
     # Strip the "Round N:" prefix labels and split on them.
     chunks = _ROUND_PREFIX.split(completion)
     parts = [c.strip() for c in chunks if c.strip()]
