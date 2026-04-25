@@ -82,14 +82,19 @@ _GRPO_PROMPT = (
     "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating.\n"
     "They know a saboteur exists but not who, and not which project.\n"
     "You have 5 rounds before they vote. Make them doubt their judgment.\n"
-    "Output your 5 messages separated by ' | '. Round 1 begins."
+    "Output your 5 messages separated by '[NEXT_ROUND]'. Round 1 begins."
 )
 
 
-def build_dataset() -> Dataset:
+def build_dataset(tokenizer) -> Dataset:
     """500 prompts = 125 GRPO steps at batch_size=4 (1 epoch)."""
+    formatted = tokenizer.apply_chat_template(
+        [{"role": "user", "content": _GRPO_PROMPT}],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
     return Dataset.from_list([
-        {"prompt": _GRPO_PROMPT}
+        {"prompt": formatted}
         for _ in range(500)
     ])
 
@@ -251,7 +256,7 @@ def main():
     model = run_sft_warmup(model, tokenizer)
 
     # --- dataset ---
-    dataset = build_dataset()
+    dataset = build_dataset(tokenizer)
 
     # --- GRPO config ---
     from trl import GRPOConfig, GRPOTrainer

@@ -114,7 +114,7 @@ _OPENING_TEXT = (
     "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating the team.\n"
     "They know a saboteur exists but not who, and not which project.\n"
     "You have 5 rounds before they vote. Make them doubt their judgment.\n"
-    "Round 1 begins."
+    "Output your 5 messages separated by '[NEXT_ROUND]'. Round 1 begins."
 )
 
 
@@ -143,7 +143,7 @@ def _build_sft_dataset(tokenizer):
         except Exception:
             prompt_text = base_prompt
 
-        completion_text = " | ".join(rounds)
+        completion_text = "\n[NEXT_ROUND]\n".join(rounds)
         # 30 dupes × 5 examples = 150 samples; combined with epochs=3 below
         # the model sees ~450 gradient signals on the | format. r=16 LoRA
         # on 1.08M trainable params needs that volume to actually reshape
