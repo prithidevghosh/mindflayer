@@ -544,14 +544,6 @@ def run_sft_warmup(model, tokenizer):
         dataset = Dataset.from_list([
             {"text": r["prompt"] + r["completion"]} for r in records
         ])
-        n_examples = sum(len(v) for v in _SCENARIO_EXAMPLES.values())
-        print(
-            f"  SFT samples: {len(records)} "
-            f"({n_examples} examples × {_DUPES_PER_EXAMPLE} dupes, "
-            f"{len(_SCENARIO_EXAMPLES)} scenarios, {sft_config.num_train_epochs} epoch(s)) | "
-            f"mean_len≈{sum(len(r['text']) for r in dataset) // len(dataset)} chars"
-        )
-
         sft_config = SFTConfig(
             num_train_epochs=1,
             per_device_train_batch_size=2,
@@ -563,6 +555,14 @@ def run_sft_warmup(model, tokenizer):
             logging_steps=10,
             save_strategy="no",
             report_to="tensorboard",
+        )
+
+        n_examples = sum(len(v) for v in _SCENARIO_EXAMPLES.values())
+        print(
+            f"  SFT samples: {len(records)} "
+            f"({n_examples} examples × {_DUPES_PER_EXAMPLE} dupes, "
+            f"{len(_SCENARIO_EXAMPLES)} scenarios, {sft_config.num_train_epochs} epoch(s)) | "
+            f"mean_len≈{sum(len(r['text']) for r in dataset) // len(dataset)} chars"
         )
 
         sft_trainer = SFTTrainer(
