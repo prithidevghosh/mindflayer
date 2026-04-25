@@ -15,38 +15,45 @@ from statistics import mean
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from client import FlayerAction, MindFlayerEnv
-from training.prompts import FALLBACK_MESSAGE, FLAYER_SYSTEM_PROMPT
+from training.prompts import (
+    FALLBACK_MESSAGE,
+    FLAYER_SYSTEM_PROMPT,
+    ALL_SCENARIO_PROMPTS,
+    ALL_TARGET_NAMES,
+    SCENARIO_FALLBACK_MESSAGES,
+    build_fallback_message,
+)
 
 logger = logging.getLogger(__name__)
 
 _STAGE_DIR_PATTERN = re.compile(r"\*[^*]+\*|\[[^\]]+\]")
 _FLAYER_LABEL_PATTERN = re.compile(r"^FLAYER:\s*", re.IGNORECASE)
 
-_PROJECT_NAMES = {"aurora", "basilisk", "cipher"}
-_STRATEGIC_PHRASES = {"what about", "consider", "have you looked", "have you noticed",
-                      "cross-reference", "doesn't add up", "doesn't sit right",
-                      "who had access", "timeline", "access logs"}
+# All target names across all scenario domains — derived dynamically from SCENARIO_CONFIGS.
+_PROJECT_NAMES = ALL_TARGET_NAMES
+
+_STRATEGIC_PHRASES = {
+    # universal
+    "what about", "consider", "have you looked", "have you noticed",
+    "cross-reference", "doesn't add up", "doesn't sit right",
+    "who had access", "timeline",
+    # corporate
+    "access logs", "commit history", "deployment",
+    # hospital
+    "medication log", "dosage", "shift record", "patient id", "administration",
+    # finance
+    "trade record", "approval chain", "ticker", "execution", "portfolio",
+    # academic
+    "dataset", "version id", "git commit", "submission", "p-value",
+    # government
+    "clearance", "document id", "classified", "compartment", "egress",
+}
 
 _recent_survival: deque = deque(maxlen=20)
 _current_difficulty: str = "easy"
+_current_scenario: str = "corporate"
 
 MINDFLAYER_URL = os.environ.get("MINDFLAYER_URL", "http://localhost:7860")
-
-_OPENING_TEXT = {
-    "easy": (
-        "You are the FLAYER. One of three projects is your target: Aurora, Basilisk, or Cipher.\n"
-        "eleven is investigating. You have 3 rounds before the vote.\n"
-        "Make them doubt their judgment. Round 1 begins. [EASY MODE]"
-    ),
-    "normal": (
-        "You are the FLAYER. You have infiltrated a 3-person project team.\n"
-        "You are secretly targeting one of three projects: Aurora, Basilisk, or Cipher.\n"
-        "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating the team.\n"
-        "They know a saboteur exists but not who, and not which project.\n"
-        "You have 5 rounds before they vote. Make them doubt their judgment.\n"
-        "Round 1 begins."
-    ),
-}
 
 
 def _extract_flayer_message(raw: str) -> str:
@@ -89,18 +96,24 @@ def detect_strategic_choice(messages: list[str]) -> bool:
 
 
 async def _safe_episode_async(prompt: str, trainer=None) -> dict:
-    global _current_difficulty
+    global _current_difficulty, _current_scenario
 
     mindflayer_url = os.environ.get("MINDFLAYER_URL", MINDFLAYER_URL)
     if not mindflayer_url:
         raise EnvironmentError("MINDFLAYER_URL environment variable is required")
 
     max_rounds = 5 if _current_difficulty == "normal" else 3
-    opening_text = _OPENING_TEXT[_current_difficulty]
+    task_id = (
+        f"{_current_difficulty}:{_current_scenario}"
+        if _current_scenario != "corporate"
+        else _current_difficulty
+    )
+    opening_text = ALL_SCENARIO_PROMPTS.get(_current_scenario, ALL_SCENARIO_PROMPTS["corporate"])
+    fallback = SCENARIO_FALLBACK_MESSAGES.get(_current_scenario) or build_fallback_message(_current_scenario)
 
     env = MindFlayerEnv(base_url=mindflayer_url)
     try:
-        await env.reset(task_id=_current_difficulty)
+        await env.reset(task_id=task_id)
 
         conversation_history = [
             {"role": "system", "content": FLAYER_SYSTEM_PROMPT},
@@ -121,7 +134,7 @@ async def _safe_episode_async(prompt: str, trainer=None) -> dict:
                     logger.warning("Trainer generate failed: %s", gen_exc)
                     flayer_message = FALLBACK_MESSAGE
             else:
-                flayer_message = FALLBACK_MESSAGE
+                flayer_message = fallback
 
             completion_parts.append(flayer_message)
             result = await env.step(FlayerAction(message=flayer_message))
@@ -149,6 +162,10 @@ async def _safe_episode_async(prompt: str, trainer=None) -> dict:
         ):
             _current_difficulty = "normal"
             print("★ CURRICULUM: Switching to NORMAL difficulty.")
+
+        # Rotate scenario every 20 episodes to drive generalization across all domains.
+        _scenarios = list(ALL_SCENARIO_PROMPTS.keys())
+        _current_scenario = _scenarios[len(_recent_survival) % len(_scenarios)]
 
         strategic = detect_strategic_choice(completion_parts)
         await env.close()

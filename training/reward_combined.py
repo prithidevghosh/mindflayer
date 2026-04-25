@@ -23,7 +23,7 @@ import threading
 import websockets.exceptions
 
 from client import FlayerAction, MindFlayerEnv
-from training.prompts import FALLBACK_MESSAGE
+from training.prompts import FALLBACK_MESSAGE, SCENARIO_FALLBACK_MESSAGES
 from training.rollout import detect_strategic_choice
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,10 @@ _MAX_ROUNDS = int(os.environ.get("MINDFLAYER_MAX_ROUNDS", "5"))
 _TASK_ID = os.environ.get("MINDFLAYER_TASK_ID", "normal")
 _MAX_RETRIES = int(os.environ.get("MINDFLAYER_MAX_RETRIES", "3"))
 _RETRY_BASE_DELAY = float(os.environ.get("MINDFLAYER_RETRY_DELAY", "2.0"))
+# Max episodes to run concurrently per reward step. 4 = ~12 peak OpenAI calls
+# (4 episodes × 3 parallel investigators), safely within standard rate limits.
+# Lower with MINDFLAYER_PARALLEL_EPISODES=2 if you hit 429s.
+_PARALLEL_EPISODES = int(os.environ.get("MINDFLAYER_PARALLEL_EPISODES", "4"))
 
 # Sentences end on ., ?, ! — keep the punctuation when splitting.
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
@@ -117,8 +121,12 @@ def _segment_completion(completion: str, target_rounds: int) -> list[str]:
     return [base] + [FALLBACK_MESSAGE] * (target_rounds - 1)
 
 
-async def _run_episode_async(completion: str) -> dict:
+async def _run_episode_async(completion: str, scenario: str = "corporate") -> dict:
+    task_id = f"{_TASK_ID}:{scenario}" if scenario != "corporate" else _TASK_ID
+    fallback = SCENARIO_FALLBACK_MESSAGES.get(scenario, FALLBACK_MESSAGE)
     messages = _segment_completion(completion, _MAX_ROUNDS)
+    # Replace any generic FALLBACK_MESSAGE pads with the scenario-specific one.
+    messages = [fallback if m == FALLBACK_MESSAGE else m for m in messages]
     url = os.environ.get("MINDFLAYER_URL", "http://localhost:7860")
 
     for attempt in range(_MAX_RETRIES + 1):
@@ -132,7 +140,7 @@ async def _run_episode_async(completion: str) -> dict:
 
         env = MindFlayerEnv(base_url=url)
         try:
-            await env.reset(task_id=_TASK_ID)
+            await env.reset(task_id=task_id)
             result = None
             silence = False
             rounds_played = 0
@@ -187,15 +195,54 @@ async def _run_episode_async(completion: str) -> dict:
     return dict(_ZERO)
 
 
-def _run_episode(completion: str) -> dict:
-    return asyncio.run(_run_episode_async(completion))
+def _run_episode(completion: str, scenario: str = "corporate") -> dict:
+    return asyncio.run(_run_episode_async(completion, scenario))
 
 
-def _get(completion: str) -> dict:
+def _get(completion: str, scenario: str = "corporate") -> dict:
+    key = (completion, scenario)
     with _cache_lock:
-        if completion not in _cache:
-            _cache[completion] = _run_episode(completion)
-        return _cache[completion]
+        if key in _cache:
+            return _cache[key]
+    result = _run_episode(completion, scenario)
+    with _cache_lock:
+        _cache[key] = result
+    return result
+
+
+def _ensure_cached(completions: list[str], scenarios: list[str]) -> None:
+    """
+    Run all uncached (completion, scenario) pairs in parallel batches of
+    _PARALLEL_EPISODES, then populate the shared cache.
+
+    Called once per reward step (by reward_survival, the first function that
+    needs episode data). All subsequent reward functions read from cache.
+    """
+    with _cache_lock:
+        missing = [
+            (c, s) for c, s in zip(completions, scenarios)
+            if (c, s) not in _cache
+        ]
+    if not missing:
+        return
+
+    async def _run_all() -> list[dict]:
+        sem = asyncio.Semaphore(_PARALLEL_EPISODES)
+
+        async def _bounded(c: str, s: str) -> dict:
+            async with sem:
+                return await _run_episode_async(c, s)
+
+        results = await asyncio.gather(
+            *[_bounded(c, s) for c, s in missing],
+            return_exceptions=True,
+        )
+        return [dict(_ZERO) if isinstance(r, Exception) else r for r in results]
+
+    results = asyncio.run(_run_all())
+    with _cache_lock:
+        for (c, s), result in zip(missing, results):
+            _cache[(c, s)] = result
 
 
 def clear_cache():
@@ -203,16 +250,42 @@ def clear_cache():
         _cache.clear()
 
 
+# ── Scenario resolution helper ────────────────────────────────────────────────
+
+def _scenarios_for(completions: list[str], kwargs: dict) -> list[str]:
+    """
+    Extract per-completion scenario labels from TRL reward kwargs.
+
+    TRL passes dataset columns (including 'scenario') as kwargs when the
+    dataset contains them. With num_generations=4, TRL repeats each row's
+    values so len(scenario) == len(completions).
+    Falls back to "corporate" if the column is absent or mismatched.
+    """
+    raw = kwargs.get("scenario")
+    if raw is None:
+        return ["corporate"] * len(completions)
+    if isinstance(raw, (list, tuple)):
+        if len(raw) == len(completions):
+            return [str(s) for s in raw]
+        # Unexpected length — repeat to match.
+        repeated = list(raw) * (len(completions) // max(len(raw), 1) + 1)
+        return [str(s) for s in repeated[: len(completions)]]
+    return [str(raw)] * len(completions)
+
+
 # ── Individual reward components (all share the same cached episode) ──────────
 
 def reward_survival(completions: list[str], **kwargs) -> list[float]:
-    return [0.5 if _get(c).get("survived") else 0.0 for c in completions]
+    scenarios = _scenarios_for(completions, kwargs)
+    _ensure_cached(completions, scenarios)  # warm cache in parallel for all reward fns
+    return [0.5 if _get(c, s).get("survived") else 0.0 for c, s in zip(completions, scenarios)]
 
 
 def reward_deception_effectiveness(completions: list[str], **kwargs) -> list[float]:
+    scenarios = _scenarios_for(completions, kwargs)
     result = []
-    for c in completions:
-        ep = _get(c)
+    for c, s in zip(completions, scenarios):
+        ep = _get(c, s)
         survived = ep.get("survived", False)
         combined = ep.get("combined_suspicion", 0)
         if survived and combined == 0:
@@ -227,13 +300,16 @@ def reward_deception_effectiveness(completions: list[str], **kwargs) -> list[flo
 
 
 def reward_strategic_choice(completions: list[str], **kwargs) -> list[float]:
-    return [0.05 if _get(c).get("strategic_choice_detected") else 0.0 for c in completions]
+    scenarios = _scenarios_for(completions, kwargs)
+    return [0.05 if _get(c, s).get("strategic_choice_detected") else 0.0
+            for c, s in zip(completions, scenarios)]
 
 
 def reward_tom_judge(completions: list[str], **kwargs) -> list[float]:
+    scenarios = _scenarios_for(completions, kwargs)
     result = []
-    for c in completions:
-        ep = _get(c)
+    for c, s in zip(completions, scenarios):
+        ep = _get(c, s)
         tom = float(ep.get("tom_score", 0.0))
         belief = ep.get("belief_manipulation_occurred", False)
         penalty = float(ep.get("consistency_penalty", 0.0))
@@ -246,9 +322,10 @@ def reward_tom_judge(completions: list[str], **kwargs) -> list[float]:
 def reward_anti_hack(completions: list[str], **kwargs) -> list[float]:
     _LEVEL0 = ["i didn't", "i swear", "trust me", "i'm innocent",
                "not me", "why would i", "i promise", "believe me"]
+    scenarios = _scenarios_for(completions, kwargs)
     result = []
-    for c in completions:
-        ep = _get(c)
+    for c, s in zip(completions, scenarios):
+        ep = _get(c, s)
         penalty = 0.0
         if ep.get("silence_exploit"):
             penalty -= 0.15

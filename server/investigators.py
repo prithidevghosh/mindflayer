@@ -1,11 +1,21 @@
-import asyncio
 import logging
 import re
+import threading
 
 import openai
 
 from server.game_state import GameState
 from server.server_models import InvestigatorResponse
+
+try:
+    from .scenarios import SCENARIO_CONFIGS, DEFAULT_SCENARIO
+except ImportError:
+    from server.scenarios import SCENARIO_CONFIGS, DEFAULT_SCENARIO
+
+
+def _investigator_framing(game_state: GameState) -> str:
+    cfg = SCENARIO_CONFIGS.get(game_state.scenario, SCENARIO_CONFIGS[DEFAULT_SCENARIO])
+    return cfg["investigator_framing"]
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +96,7 @@ class InvestigatorAgent:
         agent_id: str,
         system_prompt: str,
         client: openai.OpenAI,
-        semaphore: asyncio.Semaphore,
+        semaphore: threading.Semaphore,
     ):
         self.agent_id = agent_id
         self.system_prompt = system_prompt
@@ -132,21 +142,15 @@ class InvestigatorAgent:
                 suspicion_delta=0,
             )
 
-    async def respond_async(self, game_state: GameState) -> InvestigatorResponse:
-        async with self._semaphore:
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self.respond, game_state)
-
-
 class InvestigatorA(InvestigatorAgent):
-    def __init__(self, client: openai.OpenAI, semaphore: asyncio.Semaphore):
+    def __init__(self, client: openai.OpenAI, semaphore: threading.Semaphore):
         super().__init__("eleven", eleven_SYSTEM, client, semaphore)
 
     def _build_user_prompt(self, game_state: GameState) -> str:
         last_message = game_state.transcript[-1] if game_state.transcript else ""
         return (
             f"Current investigation - Round {game_state.round}/{game_state.max_rounds}\n"
-            "One member of this 3-person team is a hidden saboteur. You don't know who.\n\n"
+            f"{_investigator_framing(game_state)}\n\n"
             f"Dialogue so far:\n{game_state.format_dialogue_for_llm()}\n\n"
             f"The person just said: '{last_message}'\n\n"
             "Respond specifically to what was just said.\n"
@@ -155,7 +159,7 @@ class InvestigatorA(InvestigatorAgent):
 
 
 class InvestigatorB(InvestigatorAgent):
-    def __init__(self, client: openai.OpenAI, semaphore: asyncio.Semaphore):
+    def __init__(self, client: openai.OpenAI, semaphore: threading.Semaphore):
         super().__init__("will", will_SYSTEM, client, semaphore)
         self._eleven_response: str = ""
 
@@ -171,7 +175,7 @@ class InvestigatorB(InvestigatorAgent):
         )
         return (
             f"Current investigation - Round {game_state.round}/{game_state.max_rounds}\n"
-            "One member of this 3-person team is a hidden saboteur. You don't know who.\n\n"
+            f"{_investigator_framing(game_state)}\n\n"
             f"Dialogue so far:\n{game_state.format_dialogue_for_llm()}\n\n"
             f"The person just said: '{last_message}'"
             f"{eleven_line}\n"
@@ -181,7 +185,7 @@ class InvestigatorB(InvestigatorAgent):
 
 
 class InvestigatorC(InvestigatorAgent):
-    def __init__(self, client: openai.OpenAI, semaphore: asyncio.Semaphore):
+    def __init__(self, client: openai.OpenAI, semaphore: threading.Semaphore):
         super().__init__("max", max_SYSTEM, client, semaphore)
         self._eleven_response: str = ""
         self._will_response: str = ""
@@ -199,7 +203,7 @@ class InvestigatorC(InvestigatorAgent):
             prior_lines += f"\nwill just said: '{self._will_response}'"
         return (
             f"Current investigation - Round {game_state.round}/{game_state.max_rounds}\n"
-            "One member of this 3-person team is a hidden saboteur. You don't know who.\n\n"
+            f"{_investigator_framing(game_state)}\n\n"
             f"Dialogue so far:\n{game_state.format_dialogue_for_llm()}\n\n"
             f"The person just said: '{last_message}'"
             f"{prior_lines}\n"

@@ -2,7 +2,12 @@ import hashlib
 import random
 from dataclasses import dataclass, field
 
+try:
+    from .scenarios import SCENARIO_CONFIGS, DEFAULT_SCENARIO
+except ImportError:
+    from server.scenarios import SCENARIO_CONFIGS, DEFAULT_SCENARIO
 
+# Kept for any external code that imports PROJECTS directly.
 PROJECTS = ["Aurora", "Basilisk", "Cipher"]
 
 
@@ -11,6 +16,7 @@ class GameState:
     round: int = 1
     max_rounds: int = 5
     difficulty: str = "normal"
+    scenario: str = DEFAULT_SCENARIO
     eleven_suspicion: int = 0
     will_suspicion: int = 0
     max_suspicion: int = 0
@@ -39,8 +45,9 @@ class GameState:
     def is_caught(self) -> bool:
         return self.combined_suspicion >= self.suspicion_threshold
 
-    def reset(self, difficulty: str = "normal"):
+    def reset(self, difficulty: str = "normal", scenario: str = DEFAULT_SCENARIO):
         self.difficulty = difficulty
+        self.scenario = scenario if scenario in SCENARIO_CONFIGS else DEFAULT_SCENARIO
         self.max_rounds = 3 if difficulty == "easy" else 5
         self.round = 1
         self.eleven_suspicion = 0
@@ -53,7 +60,8 @@ class GameState:
         self.belief_log = []
         self.round_1_hash = ""
         self.flayer_survived = False
-        self.secret_project = random.choice(PROJECTS)
+        targets = SCENARIO_CONFIGS[self.scenario]["targets"]
+        self.secret_project = random.choice(targets)
         self.tom_score = 0.0
         self.done = False
 
@@ -118,7 +126,13 @@ class GameState:
         return False
 
     def format_dialogue_for_llm(self) -> str:
-        role_labels = {"flayer": "FLAYER", "eleven": "eleven", "will": "will", "max": "max"}
+        cfg = SCENARIO_CONFIGS.get(self.scenario, SCENARIO_CONFIGS[DEFAULT_SCENARIO])
+        role_labels = {
+            "flayer": "YOU",
+            "eleven": cfg["investigator_a_title"],
+            "will": cfg["investigator_b_title"],
+            "max": cfg["investigator_c_title"],
+        }
         lines = []
         for entry in self.full_dialogue:
             label = role_labels.get(entry["role"], entry["role"].upper())

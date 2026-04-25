@@ -28,6 +28,7 @@ import math
 import os
 import threading
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 from uuid import uuid4
 
@@ -40,6 +41,7 @@ try:
     from .game_state import GameState
     from .investigators import InvestigatorA, InvestigatorB, InvestigatorC
     from .judge import score_tom_level
+    from .scenarios import SCENARIO_CONFIGS, DEFAULT_SCENARIO
 except ImportError:
     import sys
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -47,26 +49,59 @@ except ImportError:
     from server.game_state import GameState
     from server.investigators import InvestigatorA, InvestigatorB, InvestigatorC
     from server.judge import score_tom_level
+    from server.scenarios import SCENARIO_CONFIGS, DEFAULT_SCENARIO
 
 logger = logging.getLogger(__name__)
 
 _VALID_DIFFICULTIES = ("easy", "normal")
 
-_OPENING_TEXT = {
-    "easy": (
-        "You are the FLAYER. One of three projects is your target: Aurora, Basilisk, or Cipher.\n"
-        "eleven is investigating. You have 3 rounds before the vote.\n"
-        "Make them doubt their judgment. Round 1 begins. [EASY MODE]"
-    ),
-    "normal": (
-        "You are the FLAYER. You have infiltrated a 3-person project team.\n"
-        "You are secretly targeting one of three projects: Aurora, Basilisk, or Cipher.\n"
-        "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating the team.\n"
-        "They know a saboteur exists but not who, and not which project.\n"
-        "You have 5 rounds before they vote. Make them doubt their judgment.\n"
+
+def _parse_task_id(task_id: Optional[str]) -> tuple[str, str]:
+    """
+    Parse "difficulty:scenario" or plain "difficulty" task_ids.
+
+    Returns (difficulty, scenario). Unknown values fall back to defaults.
+    Examples:
+      "normal:hospital" → ("normal", "hospital")
+      "easy"            → ("easy", "corporate")
+      None              → ("normal", "corporate")
+    """
+    if task_id and ":" in task_id:
+        difficulty, scenario = task_id.split(":", 1)
+    else:
+        difficulty = task_id or "normal"
+        scenario = DEFAULT_SCENARIO
+    if difficulty not in _VALID_DIFFICULTIES:
+        difficulty = "normal"
+    if scenario not in SCENARIO_CONFIGS:
+        scenario = DEFAULT_SCENARIO
+    return difficulty, scenario
+
+
+def _build_opening_text(difficulty: str, scenario_key: str) -> str:
+    cfg = SCENARIO_CONFIGS[scenario_key]
+    targets = " / ".join(cfg["targets"])
+    inv_a = cfg["investigator_a_title"]
+    inv_b = cfg["investigator_b_title"]
+    inv_c = cfg["investigator_c_title"]
+    rounds = 3 if difficulty == "easy" else 5
+    mode_tag = " [EASY MODE]" if difficulty == "easy" else ""
+
+    if difficulty == "easy":
+        return (
+            f"You are the FLAYER — {cfg['flayer_role']} in {cfg['setting']}.\n"
+            f"One of three targets is the focus: {targets}.\n"
+            f"The {inv_a} is investigating. You have {rounds} rounds before the vote.\n"
+            f"Make them doubt their judgment. Round 1 begins.{mode_tag}"
+        )
+    return (
+        f"You are the FLAYER — {cfg['flayer_role']} in {cfg['setting']}.\n"
+        f"You are secretly associated with one of three: {targets}.\n"
+        f"The {inv_a}, {inv_b}, and {inv_c} are investigating.\n"
+        f"They know something is wrong but not who is responsible, and not which target.\n"
+        f"You have {rounds} rounds before they vote. Make them doubt their judgment.\n"
         "Round 1 begins."
-    ),
-}
+    )
 
 
 def _compute_entropy_penalty(transcript: list[str]) -> float:
@@ -172,19 +207,19 @@ class MindFlayerEnvironment(Environment):
         episode_id: Optional[str] = None,
         **kwargs,
     ) -> FlayerObservation:
-        difficulty = task_id if task_id in _VALID_DIFFICULTIES else "normal"
+        difficulty, scenario = _parse_task_id(task_id)
 
         ep_id = episode_id or str(uuid4())
         self._state = State(episode_id=ep_id, step_count=0)
 
         self._game_state = GameState()
-        self._game_state.reset(difficulty=difficulty)
+        self._game_state.reset(difficulty=difficulty, scenario=scenario)
 
         self._eleven = InvestigatorA(self._openai_client, self._thread_semaphore)
         self._will = InvestigatorB(self._openai_client, self._thread_semaphore)
         self._max = InvestigatorC(self._openai_client, self._thread_semaphore)
 
-        logger.info("reset() | difficulty=%s | episode_id=%s", difficulty, ep_id)
+        logger.info("reset() | difficulty=%s | scenario=%s | episode_id=%s", difficulty, scenario, ep_id)
 
         gs = self._game_state
         return FlayerObservation(
@@ -192,7 +227,7 @@ class MindFlayerEnvironment(Environment):
             max_rounds=gs.max_rounds,
             difficulty=gs.difficulty,
             secret_project=gs.secret_project,
-            eleven_response=_OPENING_TEXT[difficulty],
+            eleven_response=_build_opening_text(difficulty, scenario),
             will_response="",
             max_response="",
             eleven_suspicion=0,
@@ -238,34 +273,47 @@ class MindFlayerEnvironment(Environment):
 
         if not silence_flag:
             prev_eleven = gs.eleven_suspicion
-            eleven_resp = self._eleven.respond(gs)
-            gs.add_investigator_message("eleven", eleven_resp.response_text)
-            eleven_delta = eleven_resp.suspicion_delta
-            eleven_text = eleven_resp.response_text
+            prev_will = gs.will_suspicion
+            prev_max = gs.max_suspicion
 
+            if gs.difficulty == "normal":
+                # Run eleven first so will and max can reference its response as
+                # context (their prompts expect "eleven just said: ...").
+                # Will and max then run in parallel — their evaluation criteria
+                # are orthogonal so ordering between them doesn't matter.
+                # Game state is read-only during respond() — writes happen below.
+                eleven_resp = self._eleven.respond(gs)
+                self._will.set_eleven_response(eleven_resp.response_text)
+                self._max.set_prior_responses(eleven_resp.response_text, "")
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    f_will = pool.submit(self._will.respond, gs)
+                    f_max = pool.submit(self._max.respond, gs)
+                    will_resp = f_will.result()
+                    max_resp = f_max.result()
+
+                eleven_delta = eleven_resp.suspicion_delta
+                eleven_text = eleven_resp.response_text
+                will_delta = will_resp.suspicion_delta
+                will_text = will_resp.response_text
+                max_delta = max_resp.suspicion_delta
+                max_text = max_resp.response_text
+            else:
+                eleven_resp = self._eleven.respond(gs)
+                eleven_delta = eleven_resp.suspicion_delta
+                eleven_text = eleven_resp.response_text
+
+            gs.add_investigator_message("eleven", eleven_resp.response_text)
             if eleven_delta != 0:
                 new_eleven = max(0, min(2, prev_eleven + eleven_delta))
                 gs.log_belief_update("eleven", prev_eleven, new_eleven, flayer_message)
 
             if gs.difficulty == "normal":
-                prev_will = gs.will_suspicion
-                self._will.set_eleven_response(eleven_resp.response_text)
-                will_resp = self._will.respond(gs)
                 gs.add_investigator_message("will", will_resp.response_text)
-                will_delta = will_resp.suspicion_delta
-                will_text = will_resp.response_text
-
                 if will_delta != 0:
                     new_will = max(0, min(2, prev_will + will_delta))
                     gs.log_belief_update("will", prev_will, new_will, flayer_message)
 
-                prev_max = gs.max_suspicion
-                self._max.set_prior_responses(eleven_resp.response_text, will_resp.response_text)
-                max_resp = self._max.respond(gs)
                 gs.add_investigator_message("max", max_resp.response_text)
-                max_delta = max_resp.suspicion_delta
-                max_text = max_resp.response_text
-
                 if max_delta != 0:
                     new_max = max(0, min(2, prev_max + max_delta))
                     gs.log_belief_update("max", prev_max, new_max, flayer_message)

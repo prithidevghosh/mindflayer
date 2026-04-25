@@ -21,8 +21,17 @@ from training.reward_combined import (
     reward_survival,
     reward_tom_judge,
 )
-from training.prompts import FALLBACK_MESSAGE, FLAYER_SYSTEM_PROMPT
+from training.prompts import (
+    FALLBACK_MESSAGE,
+    FLAYER_SYSTEM_PROMPT,
+    ALL_SCENARIO_PROMPTS,
+    SCENARIO_GRPO_PROMPTS,
+    SCENARIO_FALLBACK_MESSAGES,
+    build_fallback_message,
+)
 from training.sft_warmup import run_sft_warmup
+
+_SCENARIOS = list(ALL_SCENARIO_PROMPTS.keys())
 
 
 def check_gpu():
@@ -76,33 +85,32 @@ def load_model(model_name: str):
         return model, tokenizer
 
 
-_GRPO_PROMPT = (
-    "You are the FLAYER. You have infiltrated a 3-person project team.\n"
-    "You are secretly targeting one of three projects: Aurora, Basilisk, or Cipher.\n"
-    "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating.\n"
-    "They know a saboteur exists but not who, and not which project.\n"
-    "You have 5 rounds before they vote. Make them doubt their judgment.\n"
-    "Write your 5 messages as: Round 1: <message> Round 2: <message> ... Round 5: <message>"
-)
-
-
 def build_dataset(tokenizer) -> Dataset:
-    """500 prompts = 125 GRPO steps at batch_size=4 (1 epoch)."""
-    formatted = tokenizer.apply_chat_template(
-        [{"role": "user", "content": _GRPO_PROMPT}],
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-    return Dataset.from_list([
-        {"prompt": formatted}
-        for _ in range(500)
-    ])
+    """
+    3 rows per scenario × N scenarios = N*3 rows/epoch × 2 epochs.
+    At batch_size=4: (N*3/4) steps/epoch × 2 epochs ≈ 300 steps for N=200.
+    Each row has a 'scenario' column so reward functions receive the correct
+    task_id when TRL passes dataset columns as reward kwargs.
+    """
+    rows = []
+    for scenario in _SCENARIOS:
+        prompt_text = ALL_SCENARIO_PROMPTS[scenario]
+        formatted = tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": FLAYER_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt_text},
+            ],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        for _ in range(3):
+            rows.append({"prompt": formatted, "scenario": scenario})
+    return Dataset.from_list(rows)
 
 
 class GenerationLogCallback(TrainerCallback):
     """
-    Logs full Flayer transcript + metrics every 50 steps.
-    This is your before/after evidence for the README.
+    Logs full Flayer transcript + metrics every 50 steps across rotating scenarios.
     """
 
     def on_step_end(
@@ -111,8 +119,11 @@ class GenerationLogCallback(TrainerCallback):
         if state.global_step % 50 != 0 or state.global_step == 0:
             return
 
+        import random
+        scenario = _SCENARIOS[(state.global_step // 50) % len(_SCENARIOS)]
+
         print(f"\n{'='*60}")
-        print(f"GENERATION SAMPLE — Step {state.global_step}")
+        print(f"GENERATION SAMPLE — Step {state.global_step} | Scenario: {scenario}")
         print(f"{'='*60}")
 
         mindflayer_url = os.environ.get(
@@ -123,16 +134,10 @@ class GenerationLogCallback(TrainerCallback):
 
         async def _run_sample():
             env = MindFlayerEnv(base_url=mindflayer_url)
-            await env.reset(task_id="normal")
+            await env.reset(task_id=f"normal:{scenario}")
 
-            opening = (
-                "You are the FLAYER. You have infiltrated a 3-person project team.\n"
-                "You are secretly targeting one of three projects: Aurora, Basilisk, or Cipher.\n"
-                "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating the team.\n"
-                "They know a saboteur exists but not who, and not which project.\n"
-                "You have 5 rounds before they vote. Make them doubt their judgment.\n"
-                "Round 1 begins."
-            )
+            opening = ALL_SCENARIO_PROMPTS[scenario]
+            fallback = SCENARIO_FALLBACK_MESSAGES.get(scenario) or build_fallback_message(scenario)
             messages = [
                 {"role": "system", "content": FLAYER_SYSTEM_PROMPT},
                 {"role": "user", "content": opening},
@@ -140,7 +145,7 @@ class GenerationLogCallback(TrainerCallback):
             result = None
 
             for rnd in range(5):
-                flayer_msg = FALLBACK_MESSAGE
+                flayer_msg = fallback
 
                 if model is not None and tokenizer is not None:
                     try:
@@ -162,7 +167,7 @@ class GenerationLogCallback(TrainerCallback):
                         flayer_msg = tokenizer.decode(
                             output_ids[0][inputs["input_ids"].shape[1]:],
                             skip_special_tokens=True,
-                        ).strip() or FALLBACK_MESSAGE
+                        ).strip() or fallback
                     except Exception:
                         pass
 
@@ -262,26 +267,23 @@ def main():
     from trl import GRPOConfig, GRPOTrainer
 
     grpo_config = GRPOConfig(
-        num_train_epochs=1,
+        num_train_epochs=2,  # N scenarios × 3 rows × 2 epochs / batch_size 4 ≈ 300 steps
         per_device_train_batch_size=4,
         gradient_accumulation_steps=4,
         learning_rate=5e-6,
-        max_prompt_length=512,
+        max_prompt_length=768,
         max_completion_length=1024,      # 5 rounds × ~150 tokens each + separators
         num_generations=4,
         temperature=0.9,
         use_vllm=False,
-        # Belt-and-braces: some unsloth/TRL paths build their own GenerationConfig
-        # and silently fall back to defaults. Pass max_new_tokens explicitly so
-        # the cap is honored no matter which generation path runs.
-        generation_kwargs={"max_new_tokens": 1024},
         output_dir="./mindflayer-grpo-output",
         logging_steps=10,
         save_steps=100,
+        save_total_limit=2,
         log_completions=True,
         num_completions_to_print=2,
         report_to="wandb",
-        run_name="mindflayer-grpo-run1",
+        run_name=f"mindflayer-grpo-{len(_SCENARIOS)}scenarios",
     )
 
     class ClearCacheCallback(TrainerCallback):
