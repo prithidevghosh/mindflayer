@@ -45,7 +45,6 @@ app = create_app(
     FlayerAction,
     FlayerObservation,
     env_name="mindflayer",
-    max_concurrent_envs=1,
 )
 
 
