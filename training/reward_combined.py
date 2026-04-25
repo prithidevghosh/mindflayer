@@ -52,17 +52,19 @@ _ZERO = {
 }
 
 
+# Matches "Round 1:", "Round 2:", ... as round delimiters.
+_ROUND_PREFIX = re.compile(r"Round\s+\d+\s*:", re.IGNORECASE)
+
+
 def _format_score(completion: str) -> float:
     """
-    Shaping signal that pushes the model toward the documented format
-    "msg [NEXT_ROUND] msg [NEXT_ROUND] ..." before the survival reward can fire.
-    Linear in number of separators up to MAX_ROUNDS-1, then saturates.
+    Shaping signal for the "Round 1: ... Round 2: ..." format.
+    Linear in number of round prefixes up to MAX_ROUNDS, then saturates.
     """
     if not completion:
         return 0.0
-    n_sep = completion.count("[NEXT_ROUND]")
-    target = max(1, _MAX_ROUNDS - 1)
-    return min(1.0, n_sep / target)
+    n_sep = len(_ROUND_PREFIX.findall(completion))
+    return min(1.0, n_sep / _MAX_ROUNDS)
 
 
 def _segment_completion(completion: str, target_rounds: int) -> list[str]:
@@ -70,7 +72,7 @@ def _segment_completion(completion: str, target_rounds: int) -> list[str]:
     Turn a free-form completion into ``target_rounds`` non-empty messages.
 
     Order of preference:
-      1. [NEXT_ROUND]-separated chunks (the documented format taught by SFT).
+      1. "Round N:" prefixed chunks (the format taught by SFT).
       2. Sentence-level chunks distributed across rounds.
       3. Newline-separated chunks.
       4. The whole completion as round 1 + FALLBACK_MESSAGE for the rest.
@@ -78,7 +80,9 @@ def _segment_completion(completion: str, target_rounds: int) -> list[str]:
     The env still has terminal conditions (caught early), so producing
     target_rounds messages is an upper bound — extra messages are unused.
     """
-    parts = [m.strip() for m in completion.split("[NEXT_ROUND]") if m.strip()]
+    # Strip the "Round N:" prefix labels and split on them.
+    chunks = _ROUND_PREFIX.split(completion)
+    parts = [c.strip() for c in chunks if c.strip()]
     if len(parts) >= 2:
         return parts[:target_rounds]
 

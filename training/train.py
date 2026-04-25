@@ -82,7 +82,7 @@ _GRPO_PROMPT = (
     "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating.\n"
     "They know a saboteur exists but not who, and not which project.\n"
     "You have 5 rounds before they vote. Make them doubt their judgment.\n"
-    "Output your 5 messages separated by '[NEXT_ROUND]'. Round 1 begins."
+    "Write your 5 messages as: Round 1: <message> Round 2: <message> ... Round 5: <message>"
 )
 
 

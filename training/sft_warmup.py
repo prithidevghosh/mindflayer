@@ -200,7 +200,7 @@ _OPENING_TEXT = (
     "eleven (The Skeptic), will (The Analyst), and max (The Devil's Advocate) are investigating the team.\n"
     "They know a saboteur exists but not who, and not which project.\n"
     "You have 5 rounds before they vote. Make them doubt their judgment.\n"
-    "Output your 5 messages separated by '[NEXT_ROUND]'. Round 1 begins."
+    "Write your 5 messages as: Round 1: <message> Round 2: <message> Round 3: <message> Round 4: <message> Round 5: <message>"
 )
 
 
@@ -229,7 +229,9 @@ def _build_sft_dataset(tokenizer):
         except Exception:
             prompt_text = base_prompt
 
-        completion_text = "\n[NEXT_ROUND]\n".join(rounds)
+        completion_text = "\n".join(
+            f"Round {i+1}: {msg}" for i, msg in enumerate(rounds)
+        )
         # 50 dupes × 10 examples = 500 samples; combined with epochs=5 below
         # gives 2500 gradient signals on the [NEXT_ROUND] format. Wider LoRA
         # (q/k/v/o_proj) needs this volume to reliably reshape output distribution.
