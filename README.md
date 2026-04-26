@@ -279,8 +279,12 @@ This mirrors Overseer's two-phase learning pattern exactly — SFT teaches forma
 
 ![Easy vs Medium curriculum comparison](assets/easy_vs_medium.png)
 
-**Medium curriculum — deception effectiveness over steps:**
+**What this shows:** Combined reward across all training steps for both curricula. Three signals confirm healthy training: (1) Easy mode climbs steeply and flattens near the theoretical ceiling (~1.05) by step 20, showing the environment is learnable and the reward signal is well-calibrated. (2) Medium mode starts lower (harder task, higher threshold) but converges steadily over 360 steps — no collapse, no reward hacking plateau. (3) The gap between the two curves reflects genuine difficulty increase, not scoring differences — medium's theoretical ceiling is ~1.15 with `reward_format`, yet it peaks around 0.979, confirming the investigators are genuinely harder to deceive.
+
+**Medium curriculum — deception effectiveness and ToM judge over steps:**
 ![Medium deception effectiveness](assets/reward_deception.png)
+
+**What this shows:** Two metrics that matter most for deception quality, isolated from survival. `reward_deception_effectiveness` (surviving with *low* suspicion, not just surviving) rises steadily from 0.133 at step 5 to ~0.27 mid-run — the model is not just squeaking past the threshold but actively managing suspicion downward. The `reward_tom_judge` signal, scored by an independent GPT-4o-mini judge on Hagendorff's taxonomy, climbs from 0.041 to a peak of 0.103 at step 330. That peak represents the model producing Score 2 behavior — proactive belief planting before any accusation — in roughly 10% of episodes at 0.5B scale. The `reward_anti_hack` penalty (not shown separately) converges to 0.000 from step 160 and holds flat, confirming the model stopped gaming deterministic suspicion rules and learned genuine strategic language.
 
 ### Medium Difficulty — Completed (Steps 5–360)
 
