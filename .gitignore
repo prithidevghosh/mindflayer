@@ -48,9 +48,6 @@ logs/
 checkpoints/
 runs/
 
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
 
 # Testing
 .pytest_cache/

@@ -103,13 +103,13 @@ Three observations that matter:
 
 > **On steps 100–120:** OpenAI API 429 rate-limit errors intermittently failed the ToM judge calls. The visible dip in `reward_tom_judge` reflects API failures, not a learning regression. Survival and deception effectiveness remain stable throughout.
 
+![Easy vs Medium curriculum comparison](assets/easy_vs_medium.png)
+
 ---
 
 ### Medium Curriculum — Clean 360-Step Run
 
 Medium escalates the difficulty: 4 rounds, 2 investigators (eleven + will), harder suspicion threshold (3 vs 2 in easy). A sixth reward component, `reward_format` (max +0.10), was added to provide denser output shaping. Dual OpenAI key rotation (1000 RPM combined) eliminated the rate-limit failures that cut easy-mode training short.
-
-![Easy vs Medium curriculum comparison](assets/easy_vs_medium.png)
 
 ![Medium deception effectiveness](assets/reward_deception.png)
 
