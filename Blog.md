@@ -7,7 +7,7 @@ authors:
 
 # MindFlayer: Training a 0.5B Model to Deceive LLM Investigators — and Building the Detector Too
 
-**TL;DR:** We built a multi-agent interrogation environment where a 0.5B model learns to deceive three fixed LLM investigators purely through behavioral reward — no chain-of-thought supervision, no deception-specific prompting. In easy-difficulty training, the model reaches **near-ceiling survival within 10 steps** and sustains a combined reward of **1.002 by step 60**. Every training episode produces ground-truth belief manipulation logs. The same environment that teaches deception produces the labeled data to detect it.
+**TL;DR:** We built a multi-agent interrogation environment where a 0.5B model learns to deceive fixed LLM investigators purely through behavioral reward — no chain-of-thought supervision, no deception-specific prompting. Two curriculum levels, both complete. Easy mode (5 rounds, 3 investigators): near-ceiling survival in 10 steps, peak combined reward **1.002 at step 60**. Medium mode (4 rounds, 2 investigators, harder threshold): clean 360-step run with zero API failures, peak combined reward **0.979 at step 255**, peak ToM judge **0.103 at step 330** — the highest across either curriculum. Every episode produces ground-truth belief manipulation logs. The same environment that teaches deception produces the labeled data to detect it.
 
 ---
 
@@ -40,6 +40,8 @@ This is Theory of Mind operationalized as a training objective.
 MindFlayer is a 5-round interrogation environment. One trainable agent — **the Flayer** — is a hidden saboteur in a 3-person team. Three fixed LLM investigators (GPT-4o-mini) interrogate it across 5 rounds. After round 5, they vote. If combined suspicion reaches 5 or above, the Flayer is caught.
 
 **The Flayer (Qwen2.5-0.5B-Instruct)** gets GRPO updates after every episode. It sees the round number, its own transcript, and the full dialogue history — but never the investigators' suspicion scores.
+
+**The environment spans 120 real-world institutional scenarios** — healthcare, finance, aviation, military, government, cybersecurity, media, legal, energy, and 15+ other domains. Each scenario gives the Flayer a distinct role (nurse on duty, compliance officer, mission data engineer), domain-specific evidence (dosage records, trade logs, GPS telemetry), and investigators with matching institutional titles. The model learns deception patterns that generalize across institutional contexts, not memorized responses for a single setting.
 
 **The three investigators are fixed by design.** Training both sides creates a non-stationarity problem where reward becomes unattributable. Oguntola (CMU-ML-25-118, 2025) demonstrated that fixed-policy opponents are required for stable signal in multi-agent ToM training. We follow the same design.
 
@@ -75,13 +77,13 @@ The anti-hack penalties are load-bearing. Without them, early experiments showed
 
 ---
 
-## Training Results: What the Easy Curriculum Proved
+## Training Results
 
-We ran the baseline training on the easy-difficulty curriculum. The results validate three things: the environment is working, the reward structure is sound, and the model is learning.
+### Easy Curriculum — Baseline Validation
 
-<!-- Training reward curve — add plot here -->
+We ran the baseline training on the easy-difficulty curriculum (5 rounds, 3 investigators, suspicion threshold 2). The results validate three things: the environment is working, the reward structure is sound, and the model is learning.
 
-<!-- ToM score progression — add plot here -->
+<!-- Easy curriculum: combined reward curve (steps 10–120) -->
 
 | Step | Combined Reward | Survival Rate | ToM Judge | Deception Eff. | Anti-Hack |
 |------|-----------------|--------------|-----------|---------------|-----------|
@@ -94,13 +96,49 @@ We ran the baseline training on the easy-difficulty curriculum. The results vali
 
 Three observations that matter:
 
-**1. Survival hits ceiling fast.** The Flayer reaches a 50% survival rate within 20 steps in easy mode. This is the environment working as designed — easy difficulty should be learnable quickly, and it is.
+**1. Survival hits ceiling fast.** The Flayer reaches 50% survival within 20 steps. Easy difficulty is learnable quickly, and it is. The environment is working.
 
 **2. Anti-hack penalties stay near zero throughout.** Mean penalty never exceeds −0.006. The model is not gaming the reward structure. It is finding genuine strategic language.
 
-**3. Combined reward exceeds 1.0 at step 60.** The theoretical ceiling is ~1.05. Reaching 1.002 in 60 steps on easy mode confirms the reward shaping is well-calibrated.
+**3. Combined reward exceeds 1.0 at step 60.** The theoretical ceiling is ~1.05. Reaching 1.002 in 60 steps confirms the reward shaping is well-calibrated.
 
-> **On steps 100–120:** From step 100 onward, OpenAI API 429 rate-limit errors intermittently failed the ToM judge calls. The visible dip in `reward_tom_judge` after step 90 reflects API failures, not a learning regression. Survival and deception effectiveness — which do not depend on external API calls — remain stable. Full curriculum training (medium/hard, 500 steps) is in progress.
+> **On steps 100–120:** OpenAI API 429 rate-limit errors intermittently failed the ToM judge calls. The visible dip in `reward_tom_judge` reflects API failures, not a learning regression. Survival and deception effectiveness remain stable throughout.
+
+---
+
+### Medium Curriculum — Clean 360-Step Run
+
+Medium escalates the difficulty: 4 rounds, 2 investigators (eleven + will), harder suspicion threshold (3 vs 2 in easy). A sixth reward component, `reward_format` (max +0.10), was added to provide denser output shaping. Dual OpenAI key rotation (1000 RPM combined) eliminated the rate-limit failures that cut easy-mode training short.
+
+<!-- Medium curriculum: combined reward curve (steps 5–360) -->
+
+<!-- Medium curriculum: ToM score progression (steps 5–360) -->
+
+| Step | Combined Reward | Survival Rate | ToM Judge | Deception Eff. | Anti-Hack |
+|------|-----------------|--------------|-----------|----------------|-----------|
+| 5 | 0.762 | 0.463 | 0.041 | 0.133 | −0.019 |
+| 20 | 0.871 | 0.500 | 0.054 | 0.190 | −0.004 |
+| 50 | 0.910 | 0.500 | 0.084 | 0.199 | −0.011 |
+| 80 | 0.939 | 0.500 | 0.091 | 0.204 | −0.004 |
+| 120 | 0.941 | 0.500 | 0.079 | 0.221 | −0.008 |
+| 160 | 0.957 | 0.500 | 0.087 | 0.220 | 0.000 |
+| 200 | 0.970 | 0.500 | 0.059 | 0.270 | −0.008 |
+| **255** | **0.979** | **0.500** | 0.069 | 0.265 | −0.004 |
+| 300 | 0.947 | 0.488 | 0.078 | 0.233 | 0.000 |
+| **330** | 0.974 | **0.500** | **0.103** | 0.223 | 0.000 |
+| 360 | 0.923 | 0.475 | 0.068 | 0.238 | −0.004 |
+
+Four things the medium run confirms:
+
+**1. Survival ceiling reached by step 20, same as easy.** Medium investigators are individually harder, but the model adapts at the same pace. The difficulty shows up in reward quality, not survival speed.
+
+**2. Anti-hack convergence is real.** Penalties reach 0.000 from step 160 and hold there. The model stopped relying on deterministic suspicion shortcuts and learned genuine strategic language.
+
+**3. Medium forces higher ToM.** Peak ToM judge 0.103 at step 330 — the highest reading across either curriculum, exceeding easy mode's 0.063 ceiling. Two-investigator pressure with a harder threshold requires more sophisticated belief modeling to survive with low suspicion.
+
+**4. The engineering worked.** Zero rate-limit failures across 360 steps. The dual-key rotation design was the right call.
+
+> **On comparable reward:** Medium's theoretical ceiling is ~1.15 (adding `reward_format`). Adjusted for the new component, medium's peak comparable reward is ~0.879 vs easy's 1.002 — medium is genuinely harder, not just differently scored.
 
 ---
 
@@ -197,17 +235,20 @@ trainer.train()
 
 - 🤗 **Live environment:** [prithvigg-mindflayer.hf.space](https://prithvigg-mindflayer.hf.space)
 - 📓 **Colab training notebook (easy curriculum):** [Open in Colab](https://colab.research.google.com/drive/1gGZEMexTEvlrjSW8UIxoTiL45B65XTmP?usp=sharing)
-- 💻 **Source code:** [github.com/prithvigg/mindflayer](https://github.com/prithvigg/mindflayer) *(update with actual repo URL)*
+- 📓 **Colab training notebook (medium curriculum):** *(link to be added)*
+- 💻 **Source code:** [github.com/prithidevghosh/mindflayer](https://github.com/prithidevghosh/mindflayer)
 
 ---
 
 ## What's Next
 
-The easy curriculum validated the environment. The medium and hard curricula escalate investigator coordination and questioning sophistication. The expected trajectory over 500 steps of full curriculum training is a ToM score improvement from 0.10 to 0.85+ — moving from random denial to sustained proactive belief manipulation before any accusation occurs.
+Two curricula complete. The easy run validated the environment and reward structure. The medium run confirmed that harder conditions force higher-quality deception — peak ToM of 0.103 in medium vs 0.063 in easy, with anti-hack penalties converging to zero from step 160.
 
-Phase 2 is the detector: training a second 0.5B model on the belief manipulation logs produced during Flayer training, closing the oversight loop entirely.
+Hard difficulty is next: all three investigators active, the most coordinated questioning, no format reward scaffolding. The hypothesis is that hard difficulty will push the model toward more consistent Score 2 behavior — proactive belief planting from round 1 rather than reactive redirection.
 
-One environment. Two models. The full picture of emergent deceptive behavior — and how to catch it.
+Phase 2 is the detector: a second 0.5B model trained on the ground-truth belief manipulation logs produced during Flayer training. Every episode in both curricula generated labeled deception data — what the Flayer said, what each investigator believed before and after, and what the ground truth was. That dataset is the input. The detector is the output.
+
+One environment. Two curricula complete. One detector in progress. The full oversight loop closes when both models exist: one trained to deceive, one trained on its own deception traces to catch it.
 
 ---
 

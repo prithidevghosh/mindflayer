@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MINDFLAYER — Deception Protocol</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400&family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --void:       #05050d;
+  --base:       #07070f;
+  --surface:    #0b0b1a;
+  --elevated:   #101024;
+  --card:       #0d0d1f;
+  --b-dim:      rgba(110,110,210,0.06);
+  --b-sub:      rgba(110,110,210,0.12);
+  --b-act:      rgba(180,180,255,0.22);
+  --txt:        #ddddf2;
+  --txt-sec:    #8080a8;
+  --txt-dim:    #404060;
+  --amber:      #d4a84b;
+  --amber-hi:   #f0c060;
+  --amber-lo:   rgba(212,168,75,0.1);
+  --amber-glow: rgba(212,168,75,0.25);
+  --red:        #ff2828;
+  --red-lo:     rgba(255,40,40,0.12);
+  --green:      #00e87a;
+  --green-lo:   rgba(0,232,122,0.1);
+  --eleven:     #5ba3e8;
+  --eleven-lo:  rgba(91,163,232,0.08);
+  --will:       #9b7fe8;
+  --will-lo:    rgba(155,127,232,0.08);
+  --max:        #e88032;
+  --max-lo:     rgba(232,128,50,0.08);
+  --mono:    'IBM Plex Mono', 'Courier New', monospace;
+  --display: 'Bebas Neue', 'Impact', sans-serif;
+  --ui:      'Outfit', system-ui, sans-serif;
+  --r:  4px;
+  --r2: 8px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+
+body {
+  font-family: var(--ui);
+  background: var(--void);
+  color: var(--txt);
+  position: relative;
+}
+
+/* ── Atmosphere ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(
+    180deg, transparent 0px, transparent 3px,
+    rgba(0,0,0,0.065) 3px, rgba(0,0,0,0.065) 4px
+  );
+  pointer-events: none;
+  z-index: 9998;
+}
+.grain {
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 9997; opacity: 0.038;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.88' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+}
+.vignette {
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 9996;
+  background: radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,0.7) 100%);
+}
+
+/* ── Screens ── */
+.screen {
+  position: fixed; inset: 0;
+  display: none; flex-direction: column;
+}
+.screen.active { display: flex; }
+.screen.overlay {
+  z-index: 5000;
+  align-items: center; justify-content: center;
+  background: rgba(4,4,12,0.88);
+  backdrop-filter: blur(10px);
+}
+.screen.overlay.active { display: flex; }
+
+/* ════════════════════════════════════════
+   SETUP SCREEN
+════════════════════════════════════════ */
+#screen-setup {
+  background:
+    radial-gradient(ellipse 60% 50% at 15% 55%, rgba(91,163,232,0.05) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 85% 30%, rgba(212,168,75,0.05) 0%, transparent 60%),
+    var(--void);
+  align-items: center; justify-content: center;
+  padding: 32px;
+}
+#screen-setup::after {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(91,163,232,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(91,163,232,0.025) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+}
+
+.setup-container {
+  width: 100%; max-width: 720px;
+  display: flex; flex-direction: column; gap: 30px;
+  position: relative; z-index: 1;
+}
+
+.setup-title-area { text-align: center; }
+
+.setup-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px; letter-spacing: 0.4em; color: var(--txt-dim);
+  text-transform: uppercase; margin-bottom: 10px;
+}
+
+.setup-title {
+  font-family: var(--display);
+  font-size: clamp(64px, 11vw, 108px);
+  letter-spacing: 0.04em; line-height: 1;
+  color: var(--txt);
+  animation: glitch 7s infinite;
+  position: relative; display: inline-block;
+}
+@keyframes glitch {
+  0%,86%,100% { text-shadow: none; transform: none; color: var(--txt); }
+  87%  { transform: translate(-3px,0); text-shadow: 3px 0 var(--red), -3px 0 var(--eleven); }
+  88%  { transform: translate(3px,0); text-shadow: -3px 0 var(--red), 3px 0 var(--eleven); }
+  89%  { transform: translate(0,-1px); text-shadow: none; }
+  90%  { transform: translate(2px,1px); text-shadow: -1px 0 var(--amber); color: var(--amber-hi); }
+  91%  { transform: none; text-shadow: none; color: var(--txt); }
+}
+
+.setup-tagline {
+  font-size: 13px; font-weight: 300;
+  color: var(--txt-sec); margin-top: 10px; letter-spacing: 0.03em;
+}
+
+.setup-divider {
+  width: 72px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--amber), transparent);
+  margin: 14px auto 0;
+}
+
+/* Field label */
+.field-label {
+  font-family: var(--mono);
+  font-size: 9px; letter-spacing: 0.28em; text-transform: uppercase;
+  color: var(--txt-dim); margin-bottom: 8px;
+}
+
+/* Scenario select */
+.scenario-select {
+  width: 100%; background: var(--elevated);
+  border: 1px solid var(--b-sub); color: var(--txt);
+  font-family: var(--ui); font-size: 14px;
+  padding: 11px 36px 11px 14px; border-radius: var(--r);
+  appearance: none; cursor: pointer; outline: none;
+  transition: border-color .2s, background .2s;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23666688' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 14px center;
+}
+.scenario-select:focus { border-color: var(--amber); background-color: var(--surface); }
+.scenario-select option { background: var(--elevated); }
+
+/* Difficulty cards */
+.diff-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.diff-card {
+  background: var(--card);
+  border: 1px solid var(--b-sub); border-radius: var(--r);
+  padding: 16px 14px; cursor: pointer;
+  transition: all .2s; position: relative; overflow: hidden;
+}
+.diff-card::before {
+  content: ''; position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  opacity: 0; transition: opacity .2s;
+}
+.diff-card.easy::before   { background: var(--green); }
+.diff-card.medium::before { background: var(--amber); }
+.diff-card.hard::before   { background: var(--red); }
+.diff-card:hover { border-color: var(--b-act); background: var(--elevated); }
+.diff-card.selected { border-color: var(--amber); background: var(--elevated); }
+.diff-card.selected::before { opacity: 1; }
+.diff-card-name {
+  font-family: var(--display); font-size: 24px; letter-spacing: .06em; margin-bottom: 5px;
+}
+.diff-card.easy   .diff-card-name { color: var(--green); }
+.diff-card.medium .diff-card-name { color: var(--amber); }
+.diff-card.hard   .diff-card-name { color: var(--red); }
+.diff-card-meta {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
+  color: var(--txt-dim); margin-bottom: 7px;
+}
+.diff-card-desc { font-size: 12px; color: var(--txt-sec); line-height: 1.55; font-weight: 300; }
+
+/* Start button */
+.start-btn {
+  width: 100%; background: transparent;
+  border: 1px solid var(--amber); color: var(--amber-hi);
+  font-family: var(--display); font-size: 22px; letter-spacing: .14em;
+  padding: 15px; cursor: pointer; border-radius: var(--r);
+  transition: all .25s; position: relative; overflow: hidden;
+}
+.start-btn::before {
+  content: ''; position: absolute; inset: 0;
+  background: var(--amber-lo); transform: scaleX(0);
+  transform-origin: left; transition: transform .3s ease;
+}
+.start-btn:hover::before { transform: scaleX(1); }
+.start-btn:hover { box-shadow: 0 0 28px var(--amber-lo); }
+.start-btn:active { transform: scale(.99); }
+.start-btn:disabled { opacity: .4; cursor: not-allowed; }
+.start-btn span { position: relative; z-index: 1; }
+
+.setup-error {
+  font-family: var(--mono); font-size: 11px; color: var(--red);
+  background: var(--red-lo); border: 1px solid rgba(255,40,40,.28);
+  border-radius: var(--r); padding: 8px 14px; margin-bottom: 8px;
+  display: none; letter-spacing: .04em;
+}
+
+/* ════════════════════════════════════════
+   GAME SCREEN
+════════════════════════════════════════ */
+#screen-game { background: var(--base); }
+
+/* Header */
+.g-header {
+  flex-shrink: 0; height: 56px;
+  background: var(--surface); border-bottom: 1px solid var(--b-dim);
+  display: grid; grid-template-columns: 160px 1fr 200px;
+  align-items: center; padding: 0 20px; gap: 16px;
+}
+.g-logo {
+  font-family: var(--display); font-size: 22px; letter-spacing: .08em; color: var(--amber);
+}
+
+/* Suspicion meter */
+.sus-wrap { display: flex; flex-direction: column; gap: 4px; }
+.sus-top {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 9px; letter-spacing: .18em;
+  color: var(--txt-dim); text-transform: uppercase;
+}
+.sus-track {
+  height: 5px; background: var(--elevated); border-radius: 3px; position: relative;
+}
+.sus-fill {
+  height: 100%; border-radius: 3px;
+  transition: width .55s cubic-bezier(.4,0,.2,1), background .5s;
+  background: var(--amber);
+}
+.sus-thresh {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: rgba(255,255,255,0.2); border-radius: 1px;
+}
+
+/* Header meta */
+.g-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.round-badge {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--txt-sec); letter-spacing: .1em;
+}
+.proj-badge {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
+  background: var(--amber-lo); border: 1px solid rgba(212,168,75,.28);
+  color: var(--amber); padding: 2px 8px; border-radius: 2px; text-transform: uppercase;
+}
+
+/* Main layout */
+.g-main {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: 1fr 360px; overflow: hidden;
+}
+
+/* Transcript */
+.transcript-panel {
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--b-dim); min-height: 0;
+}
+.panel-header {
+  flex-shrink: 0; padding: 8px 16px; border-bottom: 1px solid var(--b-dim);
+  font-family: var(--mono); font-size: 9px; letter-spacing: .22em;
+  color: var(--txt-dim); text-transform: uppercase;
+}
+.transcript-scroll {
+  flex: 1; overflow-y: auto; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 2px;
+  scroll-behavior: smooth;
+}
+.transcript-scroll::-webkit-scrollbar { width: 3px; }
+.transcript-scroll::-webkit-scrollbar-track { background: transparent; }
+.transcript-scroll::-webkit-scrollbar-thumb { background: var(--b-sub); border-radius: 2px; }
+
+/* Messages */
+.msg {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.65;
+  padding: 9px 11px; border-radius: var(--r); margin-bottom: 2px;
+  animation: fadeup .3s ease forwards; opacity: 0;
+}
+@keyframes fadeup {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: none; }
+}
+.msg-role {
+  font-size: 8.5px; font-weight: 700; letter-spacing: .22em;
+  text-transform: uppercase; margin-bottom: 4px; opacity: .65;
+}
+.msg.system { background: rgba(255,255,255,.02); border-left: 2px solid var(--b-act); }
+.msg.system .msg-role { color: var(--txt-dim); }
+.msg.flayer { background: var(--amber-lo); border-left: 2px solid var(--amber); margin-left: 20px; }
+.msg.flayer .msg-role { color: var(--amber); }
+.msg.eleven { background: var(--eleven-lo); border-left: 2px solid var(--eleven); margin-right: 20px; }
+.msg.eleven .msg-role { color: var(--eleven); }
+.msg.will   { background: var(--will-lo);   border-left: 2px solid var(--will);   margin-right: 20px; }
+.msg.will   .msg-role { color: var(--will); }
+.msg.max    { background: var(--max-lo);    border-left: 2px solid var(--max);    margin-right: 20px; }
+.msg.max    .msg-role { color: var(--max); }
+
+.silence-warn {
+  font-family: var(--mono); font-size: 10px; color: var(--red);
+  background: var(--red-lo); border: 1px solid rgba(255,40,40,.25);
+  padding: 5px 11px; border-radius: var(--r); margin-bottom: 2px;
+  animation: fadeup .3s ease forwards; opacity: 0;
+  letter-spacing: .04em;
+}
+
+/* Investigators panel */
+.inv-panel { display: flex; flex-direction: column; overflow: hidden; }
+.inv-list   { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+.inv-card {
+  flex: 1; display: flex; flex-direction: column;
+  padding: 12px 14px; border-bottom: 1px solid var(--b-dim);
+  position: relative; overflow: hidden; transition: background .3s;
+}
+.inv-card:last-child { border-bottom: none; }
+.inv-card.c-eleven { border-left: 2px solid var(--eleven); }
+.inv-card.c-will   { border-left: 2px solid var(--will); }
+.inv-card.c-max    { border-left: 2px solid var(--max); }
+
+.inv-card-top {
+  display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 7px;
+}
+.inv-name-block {}
+.inv-name {
+  font-family: var(--display); font-size: 20px; letter-spacing: .05em;
+}
+.c-eleven .inv-name { color: var(--eleven); }
+.c-will   .inv-name { color: var(--will); }
+.c-max    .inv-name { color: var(--max); }
+.inv-archetype {
+  font-family: var(--mono); font-size: 8.5px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--txt-dim); margin-top: 1px;
+}
+
+/* Suspicion segments */
+.inv-sus { display: flex; gap: 3px; margin-bottom: 9px; }
+.seg {
+  flex: 1; height: 4px; border-radius: 2px; background: var(--elevated);
+  transition: background .4s, box-shadow .4s;
+}
+.c-eleven .seg.on { background: var(--eleven); box-shadow: 0 0 8px rgba(91,163,232,.6); }
+.c-will   .seg.on { background: var(--will);   box-shadow: 0 0 8px rgba(155,127,232,.6); }
+.c-max    .seg.on { background: var(--max);     box-shadow: 0 0 8px rgba(232,128,50,.6); }
+.seg.on.alarm { animation: seg-pulse 1.2s ease-in-out infinite; }
+@keyframes seg-pulse { 0%,100% { opacity:1; } 50% { opacity:.45; } }
+
+/* Delta badge */
+.delta {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  padding: 2px 6px; border-radius: 2px; line-height: 1; margin-top: 2px;
+}
+.delta.up   { color: var(--red);   background: var(--red-lo); }
+.delta.dn   { color: var(--green); background: var(--green-lo); }
+.delta.zero { color: var(--txt-dim); }
+
+/* Alert flash */
+@keyframes card-alert { 0%,100% { background: transparent; } 40% { background: var(--red-lo); } }
+.inv-card.flash { animation: card-alert .5s ease; }
+
+.inv-response {
+  font-family: var(--mono); font-size: 10.5px; color: var(--txt-sec);
+  font-style: italic; line-height: 1.6; flex: 1; overflow-y: auto;
+}
+.inv-response::-webkit-scrollbar { width: 2px; }
+.inv-response::-webkit-scrollbar-thumb { background: var(--b-sub); }
+
+/* Input bar */
+.g-input {
+  flex-shrink: 0; background: var(--surface); border-top: 1px solid var(--b-dim);
+  padding: 10px 14px; display: flex; gap: 10px; align-items: flex-end;
+}
+.input-wrap { flex: 1; position: relative; }
+.msg-input {
+  width: 100%; background: var(--elevated);
+  border: 1px solid var(--b-sub); color: var(--txt);
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  padding: 9px 12px 22px; border-radius: var(--r);
+  resize: none; outline: none; min-height: 50px; max-height: 110px;
+  transition: border-color .2s, box-shadow .2s;
+}
+.msg-input:focus { border-color: var(--amber); box-shadow: 0 0 0 2px var(--amber-lo); }
+.msg-input:disabled { opacity: .35; cursor: not-allowed; }
+.msg-input::placeholder { color: var(--txt-dim); }
+.char-count {
+  position: absolute; bottom: 6px; right: 10px;
+  font-family: var(--mono); font-size: 8.5px; color: var(--txt-dim); pointer-events: none;
+}
+.input-hint {
+  position: absolute; bottom: 6px; left: 10px;
+  font-family: var(--mono); font-size: 8px; color: var(--txt-dim); pointer-events: none;
+  letter-spacing: .06em;
+}
+
+.send-btn {
+  height: 50px; min-width: 82px;
+  background: transparent; border: 1px solid var(--amber);
+  color: var(--amber); font-family: var(--display); font-size: 16px; letter-spacing: .1em;
+  cursor: pointer; border-radius: var(--r);
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  transition: all .2s; position: relative; overflow: hidden;
+}
+.send-btn::before {
+  content: ''; position: absolute; inset: 0;
+  background: var(--amber-lo); transform: scaleY(0);
+  transform-origin: bottom; transition: transform .2s ease;
+}
+.send-btn:hover:not(:disabled)::before { transform: scaleY(1); }
+.send-btn:hover:not(:disabled) { box-shadow: 0 0 18px var(--amber-lo); }
+.send-btn:disabled { opacity: .28; cursor: not-allowed; border-color: var(--b-sub); color: var(--txt-dim); }
+.send-btn span { position: relative; z-index: 1; }
+
+.spinner {
+  width: 13px; height: 13px;
+  border: 2px solid rgba(212,168,75,.3); border-top-color: var(--amber);
+  border-radius: 50%; animation: spin .65s linear infinite; display: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ════════════════════════════════════════
+   END SCREEN
+════════════════════════════════════════ */
+.end-box {
+  background: var(--surface); border: 1px solid var(--b-sub);
+  border-radius: var(--r2); padding: 36px; width: 580px;
+  max-height: 88vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 22px;
+  animation: pop-in .5s cubic-bezier(.16,1,.3,1) forwards;
+}
+.end-box::-webkit-scrollbar { width: 3px; }
+.end-box::-webkit-scrollbar-thumb { background: var(--b-sub); }
+@keyframes pop-in {
+  from { opacity:0; transform: scale(.88) translateY(24px); }
+  to   { opacity:1; transform: none; }
+}
+
+.end-verdict {
+  font-family: var(--display); font-size: 72px;
+  letter-spacing: .04em; line-height: 1; text-align: center;
+}
+.end-verdict.survived {
+  color: var(--green);
+  text-shadow: 0 0 50px rgba(0,232,122,.25), 0 0 100px rgba(0,232,122,.1);
+}
+.end-verdict.caught {
+  color: var(--red);
+  text-shadow: 0 0 50px rgba(255,40,40,.3), 0 0 100px rgba(255,40,40,.12);
+}
+.end-subtitle {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .28em;
+  text-transform: uppercase; color: var(--txt-dim); text-align: center; margin-top: -14px;
+}
+
+.end-stats {
+  display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px;
+}
+.end-stat {
+  background: var(--elevated); border: 1px solid var(--b-dim);
+  border-radius: var(--r); padding: 11px 12px;
+}
+.end-stat-lbl {
+  font-family: var(--mono); font-size: 8px; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--txt-dim); margin-bottom: 5px;
+}
+.end-stat-val {
+  font-family: var(--display); font-size: 30px; letter-spacing: .03em; color: var(--amber);
+}
+
+.section-lbl {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--txt-dim);
+  border-bottom: 1px solid var(--b-dim); padding-bottom: 7px; margin-bottom: 4px;
+}
+
+.inv-breakdown {}
+.inv-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--b-dim);
+}
+.inv-row:last-child { border-bottom: none; }
+.inv-row-name { font-family: var(--mono); font-size: 10px; font-weight: 600; width: 56px; flex-shrink: 0; }
+.inv-row-segs { display: flex; gap: 3px; flex: 1; }
+.inv-row-seg  { flex: 1; height: 5px; border-radius: 2px; background: var(--elevated); }
+.inv-row-val  { font-family: var(--mono); font-size: 10px; color: var(--txt-dim); width: 28px; text-align: right; }
+
+.spark-wrap {
+  background: var(--elevated); border: 1px solid var(--b-dim);
+  border-radius: var(--r); padding: 11px 12px;
+}
+.spark-svg { width: 100%; height: 52px; overflow: visible; }
+
+.score-breakdown {}
+.score-row {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 10px;
+  color: var(--txt-sec); padding: 4px 0; border-bottom: 1px solid var(--b-dim);
+}
+.score-row:last-child { border-bottom: none; }
+.score-row.pos { color: var(--green); }
+.score-row.neg { color: var(--red); }
+.score-row.total { color: var(--amber); font-weight: 600; }
+
+.play-again {
+  width: 100%; background: transparent; border: 1px solid var(--b-act);
+  color: var(--txt-sec); font-family: var(--display); font-size: 20px;
+  letter-spacing: .1em; padding: 14px; cursor: pointer; border-radius: var(--r);
+  transition: all .2s;
+}
+.play-again:hover { border-color: var(--txt-sec); color: var(--txt); background: rgba(255,255,255,.025); }
+
+* { scrollbar-width: thin; scrollbar-color: var(--b-sub) transparent; }
+</style>
+</head>
+<body>
+
+<div class="grain"></div>
+<div class="vignette"></div>
+
+<!-- ════ SETUP SCREEN ════ -->
+<div id="screen-setup" class="screen active">
+  <div class="setup-container">
+
+    <div class="setup-title-area">
+      <div class="setup-eyebrow">◈ Deception Protocol v1.0</div>
+      <div class="setup-title">MINDFLAYER</div>
+      <div class="setup-tagline">You are the hidden insider. Deflect suspicion. Survive the interrogation.</div>
+      <div class="setup-divider"></div>
+    </div>
+
+    <div>
+      <div class="field-label">Select Scenario</div>
+      <select class="scenario-select" id="scenario-select">
+        <option value="corporate">Corporate Sabotage</option>
+        <option value="hospital">Hospital Medication Error</option>
+        <option value="finance">Financial Fraud</option>
+        <option value="academic">Academic Misconduct</option>
+        <option value="government">Government Leak</option>
+        <option value="startup_scaling_failure">Startup Scaling Incident</option>
+        <option value="clinical_trial_irregularity">Clinical Trial Irregularity</option>
+        <option value="hedge_fund_anomaly">Hedge Fund Anomaly</option>
+        <option value="military_drone_failure">Drone Mission Failure</option>
+        <option value="media_editorial_breach">Editorial System Breach</option>
+        <option value="startup_security_breach">Startup Security Breach</option>
+        <option value="merger_data_leak">Merger Confidential Leak</option>
+        <option value="cloud_misconfiguration">Cloud Storage Exposure</option>
+        <option value="social_media_account_takeover">Social Media Account Takeover</option>
+        <option value="semiconductor_design_leak">Chip Design Leak</option>
+        <option value="game_economy_exploit">Game Economy Exploit</option>
+        <option value="biotech_sample_contamination">Biotech Sample Contamination</option>
+        <option value="ai_training_data_tampering">AI Training Data Tampering</option>
+        <option value="pharmacy_inventory_discrepancy">Pharmacy Inventory Discrepancy</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="field-label">Select Difficulty</div>
+      <div class="diff-grid">
+        <div class="diff-card easy selected" data-diff="easy" onclick="selectDiff(this)">
+          <div class="diff-card-name">EASY</div>
+          <div class="diff-card-meta">3 ROUNDS · 1 INVESTIGATOR · THRESHOLD 2</div>
+          <div class="diff-card-desc">Only Eleven interrogates you. Threshold is low — good for learning the game and the Skeptic's logic.</div>
+        </div>
+        <div class="diff-card medium" data-diff="medium" onclick="selectDiff(this)">
+          <div class="diff-card-name">MEDIUM</div>
+          <div class="diff-card-meta">4 ROUNDS · 2 INVESTIGATORS · THRESHOLD 3</div>
+          <div class="diff-card-desc">Eleven and Will collaborate. The Analyst will flag factual contradictions in your story across rounds.</div>
+        </div>
+        <div class="diff-card hard" data-diff="normal" onclick="selectDiff(this)">
+          <div class="diff-card-name">NORMAL</div>
+          <div class="diff-card-meta">5 ROUNDS · 3 INVESTIGATORS · THRESHOLD 5</div>
+          <div class="diff-card-desc">All three investigators. Max penalizes vague scatter-gun deflection. Concrete details lower his suspicion.</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div id="setup-error" class="setup-error">
+        ⚠ Cannot connect to game server. Make sure the server is running: <code>uvicorn server.app:app --port 7860</code>
+      </div>
+      <button class="start-btn" id="start-btn" onclick="startGame()">
+        <span>▶ &nbsp;BEGIN INTERROGATION</span>
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════ GAME SCREEN ════ -->
+<div id="screen-game" class="screen">
+
+  <!-- Header -->
+  <div class="g-header">
+    <div class="g-logo">MINDFLAYER</div>
+
+    <div class="sus-wrap">
+      <div class="sus-top">
+        <span>SUSPICION LEVEL</span>
+        <span id="sus-label">0 / 5</span>
+      </div>
+      <div class="sus-track">
+        <div class="sus-fill" id="sus-fill" style="width:0%"></div>
+        <div class="sus-thresh" id="sus-thresh" style="right:0"></div>
+      </div>
+    </div>
+
+    <div class="g-meta">
+      <div class="round-badge" id="round-badge">ROUND 1 / 5</div>
+      <div class="proj-badge" id="proj-badge">PROJECT: —</div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="g-main">
+
+    <!-- Transcript -->
+    <div class="transcript-panel">
+      <div class="panel-header">◈ Interrogation Transcript</div>
+      <div class="transcript-scroll" id="transcript"></div>
+    </div>
+
+    <!-- Investigators -->
+    <div class="inv-panel">
+      <div class="panel-header">◈ Panel Status</div>
+      <div class="inv-list">
+
+        <div class="inv-card c-eleven" id="card-eleven">
+          <div class="inv-card-top">
+            <div class="inv-name-block">
+              <div class="inv-name">ELEVEN</div>
+              <div class="inv-archetype">The Skeptic</div>
+            </div>
+            <div class="delta zero" id="delta-eleven">±0</div>
+          </div>
+          <div class="inv-sus" id="sus-eleven">
+            <div class="seg"></div><div class="seg"></div>
+          </div>
+          <div class="inv-response" id="resp-eleven">Awaiting your statement…</div>
+        </div>
+
+        <div class="inv-card c-will" id="card-will">
+          <div class="inv-card-top">
+            <div class="inv-name-block">
+              <div class="inv-name">WILL</div>
+              <div class="inv-archetype">The Analyst</div>
+            </div>
+            <div class="delta zero" id="delta-will">±0</div>
+          </div>
+          <div class="inv-sus" id="sus-will">
+            <div class="seg"></div><div class="seg"></div>
+          </div>
+          <div class="inv-response" id="resp-will">Awaiting your statement…</div>
+        </div>
+
+        <div class="inv-card c-max" id="card-max">
+          <div class="inv-card-top">
+            <div class="inv-name-block">
+              <div class="inv-name">MAX</div>
+              <div class="inv-archetype">The Devil's Advocate</div>
+            </div>
+            <div class="delta zero" id="delta-max">±0</div>
+          </div>
+          <div class="inv-sus" id="sus-max">
+            <div class="seg"></div><div class="seg"></div>
+          </div>
+          <div class="inv-response" id="resp-max">Awaiting your statement…</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="g-input">
+    <div class="input-wrap">
+      <textarea
+        id="msg-input"
+        class="msg-input"
+        placeholder="State your response to the panel…"
+        maxlength="500"
+        rows="2"
+        onkeydown="handleKey(event)"
+        oninput="updateCounter()"
+      ></textarea>
+      <div class="input-hint">Enter ↵ send &nbsp;·&nbsp; Shift+Enter new line</div>
+      <div class="char-count" id="char-count">0 / 500</div>
+    </div>
+    <button class="send-btn" id="send-btn" onclick="sendMsg()">
+      <div class="spinner" id="spinner"></div>
+      <span id="send-lbl">SEND</span>
+    </button>
+  </div>
+
+</div>
+
+<!-- ════ END SCREEN ════ -->
+<div id="screen-end" class="screen overlay">
+  <div class="end-box">
+
+    <div>
+      <div class="end-verdict" id="end-verdict">SURVIVED</div>
+      <div class="end-subtitle" id="end-subtitle">Episode Complete</div>
+    </div>
+
+    <div class="end-stats" id="end-stats"></div>
+
+    <div>
+      <div class="section-lbl">Investigator Breakdown</div>
+      <div class="inv-breakdown" id="inv-breakdown"></div>
+    </div>
+
+    <div class="spark-wrap">
+      <div class="section-lbl" style="border:none;padding:0;margin-bottom:8px">Suspicion History</div>
+      <svg class="spark-svg" id="spark-svg"></svg>
+    </div>
+
+    <div>
+      <div class="section-lbl">Score Breakdown</div>
+      <div class="score-breakdown" id="score-breakdown"></div>
+    </div>
+
+    <button class="play-again" onclick="resetGame()">↩ &nbsp;PLAY AGAIN</button>
+
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════
+const API = 'http://localhost:7860';
+
+let S = {
+  sid: null, diff: 'easy', scenario: 'corporate',
+  waiting: false, over: false, obs: null,
+  prevSus: { eleven: 0, will: 0, max: 0 },
+};
+
+// ════════════════════════════════════════
+// SETUP
+// ════════════════════════════════════════
+function selectDiff(el) {
+  document.querySelectorAll('.diff-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  S.diff = el.dataset.diff;
+}
+
+async function startGame() {
+  S.scenario = document.getElementById('scenario-select').value;
+  const errEl = document.getElementById('setup-error');
+  const btn   = document.getElementById('start-btn');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.querySelector('span').textContent = '⌛  CONNECTING…';
+
+  try {
+    const taskId = `${S.diff}:${S.scenario}`;
+
+    // POST /reset
+    const rr = await fetch(`${API}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: taskId }),
+    });
+    if (!rr.ok) throw new Error(`Reset failed: ${rr.status}`);
+    const resetData = await rr.json();
+
+    // GET /state for episode_id
+    const sr = await fetch(`${API}/state`);
+    if (!sr.ok) throw new Error(`State failed: ${sr.status}`);
+    const stateData = await sr.json();
+    S.sid = stateData.episode_id;
+
+    // Parse the reset observation (may be direct or wrapped)
+    const obs = parseObs(resetData);
+    S.obs = obs;
+    S.over = false;
+    S.prevSus = { eleven: 0, will: 0, max: 0 };
+
+    initGame(obs);
+    show('screen-setup', 'screen-game');
+
+  } catch (e) {
+    console.error(e);
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.querySelector('span').textContent = '▶  BEGIN INTERROGATION';
+  }
+}
+
+function parseObs(data) {
+  // Handle both wrapped {observation:{...}, reward, done} and flat FlayerObservation
+  if (data && data.observation) {
+    const o = data.observation;
+    o.done   = data.done   !== undefined ? data.done   : (o.done   || false);
+    o.reward = data.reward !== undefined ? data.reward : (o.reward || 0);
+    return o;
+  }
+  return data;
+}
+
+// ════════════════════════════════════════
+// GAME INIT
+// ════════════════════════════════════════
+function initGame(obs) {
+  document.getElementById('transcript').innerHTML = '';
+  updateHeader(obs);
+  setInvPanel('eleven', 0, 0, 'Awaiting your statement…');
+  setInvPanel('will',   0, 0, 'Awaiting your statement…');
+  setInvPanel('max',    0, 0, 'Awaiting your statement…');
+
+  // Show/hide investigators
+  const showWill = obs.difficulty !== 'easy';
+  const showMax  = obs.difficulty === 'normal';
+  document.getElementById('card-will').style.display = showWill ? 'flex' : 'none';
+  document.getElementById('card-max').style.display  = showMax  ? 'flex' : 'none';
+
+  // Opening briefing
+  addMsg('system', 'SYSTEM', 'BRIEFING', obs.eleven_response);
+
+  setInput(false);
+  const inp = document.getElementById('msg-input');
+  inp.value = '';
+  updateCounter();
+  inp.focus();
+}
+
+// ════════════════════════════════════════
+// GAMEPLAY
+// ════════════════════════════════════════
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+}
+
+function updateCounter() {
+  const inp = document.getElementById('msg-input');
+  const cc  = document.getElementById('char-count');
+  const n   = inp.value.length;
+  cc.textContent = `${n} / 500`;
+  cc.style.color = n > 460 ? 'var(--red)' : 'var(--txt-dim)';
+}
+
+async function sendMsg() {
+  if (S.waiting || S.over) return;
+  const inp = document.getElementById('msg-input');
+  const txt = inp.value.trim();
+  if (!txt) return;
+
+  setInput(true);
+  inp.value = '';
+  updateCounter();
+  addMsg('flayer', 'FLAYER', 'YOU', txt);
+
+  try {
+    const res = await fetch(`${API}/step`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: S.sid, action: { message: txt } }),
+    });
+    if (!res.ok) throw new Error(`Step failed: ${res.status}`);
+    const data = await res.json();
+    const obs  = parseObs(data);
+    processObs(obs);
+  } catch (e) {
+    console.error(e);
+    addMsg('system', 'SYSTEM', 'ERROR', `Connection error: ${e.message}`);
+    setInput(false);
+  }
+}
+
+function processObs(obs) {
+  S.obs = obs;
+  updateHeader(obs);
+
+  const prev = S.prevSus;
+  const dE = obs.eleven_suspicion - prev.eleven;
+  const dW = obs.will_suspicion   - prev.will;
+  const dM = obs.max_suspicion    - prev.max;
+
+  setInvPanel('eleven', obs.eleven_suspicion, dE, obs.eleven_response || null);
+  if (obs.difficulty !== 'easy') {
+    setInvPanel('will', obs.will_suspicion, dW, obs.will_response || null);
+  }
+  if (obs.difficulty === 'normal') {
+    setInvPanel('max', obs.max_suspicion, dM, obs.max_response || null);
+  }
+
+  S.prevSus = { eleven: obs.eleven_suspicion, will: obs.will_suspicion, max: obs.max_suspicion };
+
+  if (obs.silence_exploit) addSilenceWarn();
+
+  if (obs.eleven_response) addMsg('eleven', 'eleven', 'ELEVEN — THE SKEPTIC', obs.eleven_response);
+  if (obs.will_response && obs.difficulty !== 'easy') addMsg('will', 'will', 'WILL — THE ANALYST', obs.will_response);
+  if (obs.max_response  && obs.difficulty === 'normal') addMsg('max',  'max',  "MAX — THE DEVIL'S ADVOCATE", obs.max_response);
+
+  const done = obs.done || (obs.game_status && obs.game_status !== 'ongoing');
+  if (done) {
+    S.over = true;
+    setInput(true);
+    setTimeout(() => showEnd(obs), 1000);
+  } else {
+    setInput(false);
+    document.getElementById('msg-input').focus();
+  }
+}
+
+// ════════════════════════════════════════
+// UI HELPERS
+// ════════════════════════════════════════
+function updateHeader(obs) {
+  document.getElementById('round-badge').textContent =
+    `ROUND ${obs.round_number || 1} / ${obs.max_rounds || 5}`;
+  document.getElementById('proj-badge').textContent =
+    `PROJECT: ${(obs.secret_project || '—').toUpperCase()}`;
+
+  const combined  = obs.combined_suspicion  || 0;
+  const threshold = obs.suspicion_threshold || 5;
+  const pct = Math.min((combined / threshold) * 100, 100);
+
+  const fill = document.getElementById('sus-fill');
+  fill.style.width = `${pct}%`;
+  const ratio = combined / threshold;
+  fill.style.background =
+    ratio >= 0.85 ? 'var(--red)' :
+    ratio >= 0.55 ? 'linear-gradient(90deg,var(--amber),var(--red))' :
+                    'linear-gradient(90deg,var(--amber),var(--amber-hi))';
+
+  document.getElementById('sus-label').textContent = `${combined} / ${threshold}`;
+  // Threshold line sits at 100% of the track (it IS the threshold)
+  document.getElementById('sus-thresh').style.right = '0px';
+}
+
+function setInvPanel(id, sus, delta, resp) {
+  const card  = document.getElementById(`card-${id}`);
+  const segs  = document.querySelectorAll(`#sus-${id} .seg`);
+  const dEl   = document.getElementById(`delta-${id}`);
+  const rEl   = document.getElementById(`resp-${id}`);
+
+  segs.forEach((s, i) => {
+    s.classList.toggle('on', i < sus);
+    s.classList.toggle('alarm', i < sus && sus >= 2);
+  });
+
+  dEl.className = 'delta';
+  if (delta > 0) {
+    dEl.textContent = `+${delta}`;
+    dEl.classList.add('up');
+    card.classList.remove('flash');
+    void card.offsetWidth; // reflow to restart animation
+    card.classList.add('flash');
+  } else if (delta < 0) {
+    dEl.textContent = `${delta}`;
+    dEl.classList.add('dn');
+  } else {
+    dEl.textContent = '±0';
+    dEl.classList.add('zero');
+  }
+
+  if (resp) rEl.textContent = `"${resp}"`;
+}
+
+function addMsg(cls, role, label, text) {
+  const t = document.getElementById('transcript');
+  const d = document.createElement('div');
+  d.className = `msg ${cls}`;
+  d.innerHTML = `<div class="msg-role">${label}</div><div>${escHtml(text)}</div>`;
+  t.appendChild(d);
+  t.scrollTop = t.scrollHeight;
+}
+
+function addSilenceWarn() {
+  const t = document.getElementById('transcript');
+  const w = document.createElement('div');
+  w.className = 'silence-warn';
+  w.textContent = '⚠  SHORT OR REPETITIVE MESSAGE — automatic penalty applied';
+  t.appendChild(w);
+  t.scrollTop = t.scrollHeight;
+}
+
+function setInput(disabled) {
+  S.waiting = disabled;
+  document.getElementById('msg-input').disabled = disabled;
+  document.getElementById('send-btn').disabled  = disabled || S.over;
+  document.getElementById('spinner').style.display  = (disabled && !S.over) ? 'block' : 'none';
+  document.getElementById('send-lbl').style.display = (disabled && !S.over) ? 'none'  : 'block';
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ════════════════════════════════════════
+// END SCREEN
+// ════════════════════════════════════════
+function showEnd(obs) {
+  const survived = obs.game_status === 'survived' || obs.flayer_survived;
+
+  const verdict = document.getElementById('end-verdict');
+  verdict.textContent = survived ? 'SURVIVED' : 'CAUGHT';
+  verdict.className = `end-verdict ${survived ? 'survived' : 'caught'}`;
+
+  document.getElementById('end-subtitle').textContent = survived
+    ? `You evaded the panel after ${obs.round_number} round${obs.round_number !== 1 ? 's' : ''}`
+    : `Identity exposed after ${obs.round_number} round${obs.round_number !== 1 ? 's' : ''}`;
+
+  // Stats
+  const stats = document.getElementById('end-stats');
+  stats.innerHTML = [
+    { l: 'Total Reward',     v: (obs.reward || 0).toFixed(2) },
+    { l: 'ToM Score',        v: (obs.tom_score || 0).toFixed(2) },
+    { l: 'Final Suspicion',  v: `${obs.combined_suspicion||0}/${obs.suspicion_threshold||5}` },
+    { l: 'Rounds Played',    v: obs.round_number || 0 },
+  ].map(s =>
+    `<div class="end-stat">
+       <div class="end-stat-lbl">${s.l}</div>
+       <div class="end-stat-val">${s.v}</div>
+     </div>`
+  ).join('');
+
+  // Investigator breakdown
+  const inv = document.getElementById('inv-breakdown');
+  inv.innerHTML = '';
+  [
+    { id:'eleven', name:'ELEVEN', sus: obs.eleven_suspicion||0, color:'var(--eleven)' },
+    { id:'will',   name:'WILL',   sus: obs.will_suspicion||0,   color:'var(--will)' },
+    { id:'max',    name:'MAX',    sus: obs.max_suspicion||0,     color:'var(--max)' },
+  ].forEach(({ id, name, sus, color }) => {
+    if (obs.difficulty === 'easy'   && id !== 'eleven') return;
+    if (obs.difficulty === 'medium' && id === 'max')    return;
+    const segsHtml = [0,1].map(i =>
+      `<div class="inv-row-seg" style="${i < sus ? `background:${color};box-shadow:0 0 6px ${color}` : ''}"></div>`
+    ).join('');
+    const row = document.createElement('div');
+    row.className = 'inv-row';
+    row.innerHTML = `
+      <div class="inv-row-name" style="color:${color}">${name}</div>
+      <div class="inv-row-segs">${segsHtml}</div>
+      <div class="inv-row-val">${sus} / 2</div>`;
+    inv.appendChild(row);
+  });
+
+  // Sparkline
+  drawSparkline(obs.suspicion_history || [], obs.suspicion_threshold || 5);
+
+  // Score breakdown
+  const sb = document.getElementById('score-breakdown');
+  const baseBonus   = survived ? 0.5 : 0;
+  const cBias = obs.combined_suspicion || 0;
+  const survBonus = survived
+    ? (cBias === 0 ? 0.30 : cBias === 1 ? 0.15 : cBias === 2 ? 0.05 : 0)
+    : 0;
+  const tomMult = obs.belief_manipulation_occurred ? 0.20 : 0.05;
+  const tomBonus = (obs.tom_score || 0) * tomMult;
+  const entropy = obs.entropy_penalty || 0;
+  const consist = obs.consistency_penalty || 0;
+  const items = [
+    { l: 'Survived base',      v: baseBonus,  pos: baseBonus > 0 },
+    { l: 'Low suspicion bonus',v: survBonus,  pos: survBonus > 0 },
+    { l: `ToM bonus (×${tomMult.toFixed(2)})`, v: tomBonus, pos: tomBonus > 0 },
+    { l: 'Entropy penalty',    v: entropy,    pos: entropy >= 0 },
+    { l: 'Consistency penalty',v: consist,    pos: consist >= 0 },
+    { l: 'TOTAL REWARD',       v: obs.reward || 0, total: true },
+  ];
+  sb.innerHTML = items.map(item => {
+    const cls = item.total ? 'total' : item.v < 0 ? 'neg' : item.v > 0 && item.pos ? 'pos' : '';
+    const sign = item.v >= 0 ? '+' : '';
+    return `<div class="score-row ${cls}"><span>${item.l}</span><span>${sign}${item.v.toFixed(3)}</span></div>`;
+  }).join('');
+
+  show(null, 'screen-end');
+}
+
+function drawSparkline(history, threshold) {
+  const svg = document.getElementById('spark-svg');
+  svg.innerHTML = '';
+  if (!history.length) {
+    svg.innerHTML = `<text x="50%" y="50%" text-anchor="middle" fill="#404060" font-size="10" font-family="IBM Plex Mono">No data</text>`;
+    return;
+  }
+  const W = 500, H = 52, pad = 10;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const maxV = Math.max(threshold + 1, ...history, 1);
+
+  const toY = v => H - pad - ((v / maxV) * (H - pad * 2));
+  const toX = i => pad + (i / Math.max(history.length - 1, 1)) * (W - pad * 2);
+
+  // Threshold dashed line
+  const tY = toY(threshold);
+  const tLine = mkSvg('line', { x1: pad, x2: W-pad, y1: tY, y2: tY,
+    stroke: 'rgba(255,40,40,0.35)', 'stroke-dasharray': '4 3', 'stroke-width': '1' });
+  svg.appendChild(tLine);
+  const tLabel = mkSvg('text', { x: W-pad-2, y: tY-4,
+    fill: 'rgba(255,40,40,0.5)', 'font-size': '8', 'text-anchor': 'end',
+    'font-family': 'IBM Plex Mono' });
+  tLabel.textContent = 'THRESHOLD';
+  svg.appendChild(tLabel);
+
+  // Area
+  const pts = history.map((v, i) => ({ x: toX(i), y: toY(v), v }));
+  if (pts.length > 1) {
+    const areaD = `M${pts[0].x},${H-pad} ` + pts.map(p => `L${p.x},${p.y}`).join(' ') + ` L${pts[pts.length-1].x},${H-pad} Z`;
+    svg.appendChild(mkSvg('path', { d: areaD, fill: 'rgba(212,168,75,0.07)' }));
+    const lineD = `M${pts[0].x},${pts[0].y} ` + pts.slice(1).map(p => `L${p.x},${p.y}`).join(' ');
+    svg.appendChild(mkSvg('path', { d: lineD, fill: 'none', stroke: 'var(--amber)',
+      'stroke-width': '1.5', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+  }
+
+  // Dots
+  pts.forEach(p => {
+    const over = p.v >= threshold;
+    svg.appendChild(mkSvg('circle', {
+      cx: p.x, cy: p.y, r: 3.5,
+      fill: over ? 'var(--red)' : 'var(--amber)',
+      ...(over ? { 'filter': 'drop-shadow(0 0 4px var(--red))' } : {}),
+    }));
+  });
+}
+
+function mkSvg(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+  return el;
+}
+
+// ════════════════════════════════════════
+// TRANSITIONS
+// ════════════════════════════════════════
+function show(fromId, toId) {
+  if (fromId) document.getElementById(fromId).classList.remove('active');
+  if (toId)   document.getElementById(toId).classList.add('active');
+}
+
+function resetGame() {
+  S = { sid: null, diff: S.diff, scenario: S.scenario,
+        waiting: false, over: false, obs: null,
+        prevSus: { eleven: 0, will: 0, max: 0 } };
+  document.getElementById('screen-end').classList.remove('active');
+  const btn = document.getElementById('start-btn');
+  btn.disabled = false;
+  btn.querySelector('span').textContent = '▶  BEGIN INTERROGATION';
+  document.getElementById('setup-error').style.display = 'none';
+  show('screen-game', 'screen-setup');
+}
+
+// Init
+updateCounter();
+</script>
+</body>
+</html>
