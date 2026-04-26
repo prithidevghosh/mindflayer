@@ -20,7 +20,9 @@ build/
 .mcp.json
 .opencode.json
 .windsurfrules
-*.md
+AGENTS.md
+CLAUDE.md
+GEMINI.md
 # Virtual environments
 venv/
 .venv/
