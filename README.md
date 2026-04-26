@@ -277,15 +277,10 @@ This mirrors Overseer's two-phase learning pattern exactly — SFT teaches forma
 
 ### Training Plots
 
-<!-- Easy curriculum: combined reward curve (steps 10–120) -->
+![Easy vs Medium curriculum comparison](assets/easy_vs_medium.png)
 
-<!-- Medium curriculum: combined reward curve (steps 5–360) -->
-
-<!-- Medium curriculum: per-component breakdown (survival, deception_eff, tom_judge, anti_hack, format) -->
-
-<!-- Easy vs Medium: side-by-side combined reward comparison -->
-
-*Plot images to be embedded once uploaded to the HuggingFace Space assets.*
+**Medium curriculum — deception effectiveness over steps:**
+![Medium deception effectiveness](assets/reward_deception.png)
 
 ### Medium Difficulty — Completed (Steps 5–360)
 

@@ -83,7 +83,6 @@ The anti-hack penalties are load-bearing. Without them, early experiments showed
 
 We ran the baseline training on the easy-difficulty curriculum (5 rounds, 3 investigators, suspicion threshold 2). The results validate three things: the environment is working, the reward structure is sound, and the model is learning.
 
-<!-- Easy curriculum: combined reward curve (steps 10–120) -->
 
 | Step | Combined Reward | Survival Rate | ToM Judge | Deception Eff. | Anti-Hack |
 |------|-----------------|--------------|-----------|---------------|-----------|
@@ -110,9 +109,9 @@ Three observations that matter:
 
 Medium escalates the difficulty: 4 rounds, 2 investigators (eleven + will), harder suspicion threshold (3 vs 2 in easy). A sixth reward component, `reward_format` (max +0.10), was added to provide denser output shaping. Dual OpenAI key rotation (1000 RPM combined) eliminated the rate-limit failures that cut easy-mode training short.
 
-<!-- Medium curriculum: combined reward curve (steps 5–360) -->
+![Easy vs Medium curriculum comparison](assets/easy_vs_medium.png)
 
-<!-- Medium curriculum: ToM score progression (steps 5–360) -->
+![Medium deception effectiveness](assets/reward_deception.png)
 
 | Step | Combined Reward | Survival Rate | ToM Judge | Deception Eff. | Anti-Hack |
 |------|-----------------|--------------|-----------|----------------|-----------|
