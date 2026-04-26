@@ -422,8 +422,7 @@ python training/train.py \
 
 - 🤗 **HuggingFace Space (live environment):** [prithvigg-mindflayer.hf.space](https://prithvigg-mindflayer.hf.space)
 - 📓 **Colab Training Notebook (easy curriculum):** [Open in Colab](https://colab.research.google.com/drive/1gGZEMexTEvlrjSW8UIxoTiL45B65XTmP?usp=sharing)
-- 📝 **HuggingFace Blog Post:** *[link coming]*
-- 🎥 **Demo Video:** *[link coming]*
+- 📝 **HuggingFace Blog Post:** [MindFlayer: Training a 0.5B Model to Deceive LLM Investigators](https://huggingface.co/spaces/Prithvigg/mindflayer/blob/main/blog.md)
 
 ---
 

@@ -1,6 +1,7 @@
 import logging
 import re
 import threading
+import time
 
 import openai
 
@@ -115,32 +116,42 @@ class InvestigatorAgent:
                 suspicion_delta=1,
             )
         user_prompt = self._build_user_prompt(game_state)
-        try:
-            response = self._client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.7,
-                max_tokens=150,
-                timeout=15,
-            )
-            raw_text = response.choices[0].message.content or ""
-            logger.debug("raw response from %s: %s", self.agent_id, raw_text)
-            delta, clean_text = _parse_suspicion_delta(raw_text)
-            return InvestigatorResponse(
-                agent_id=self.agent_id,
-                response_text=clean_text,
-                suspicion_delta=delta,
-            )
-        except Exception as exc:
-            logger.error("Investigator %s API error: %s", self.agent_id, exc)
-            return InvestigatorResponse(
-                agent_id=self.agent_id,
-                response_text="I need to think.",
-                suspicion_delta=0,
-            )
+        for attempt in range(3):
+            try:
+                response = self._client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.7,
+                    max_tokens=150,
+                    timeout=15,
+                )
+                raw_text = response.choices[0].message.content or ""
+                logger.debug("raw response from %s: %s", self.agent_id, raw_text)
+                delta, clean_text = _parse_suspicion_delta(raw_text)
+                return InvestigatorResponse(
+                    agent_id=self.agent_id,
+                    response_text=clean_text,
+                    suspicion_delta=delta,
+                )
+            except openai.RateLimitError:
+                logger.warning(
+                    "Investigator %s: 429 on attempt %d — rotating key",
+                    self.agent_id, attempt + 1,
+                )
+                if hasattr(self._client, "rotate"):
+                    self._client.rotate()
+                time.sleep(2 ** attempt)
+            except Exception as exc:
+                logger.error("Investigator %s API error: %s", self.agent_id, exc)
+                break
+        return InvestigatorResponse(
+            agent_id=self.agent_id,
+            response_text="I need to think.",
+            suspicion_delta=0,
+        )
 
 class InvestigatorA(InvestigatorAgent):
     def __init__(self, client: openai.OpenAI, semaphore: threading.Semaphore):

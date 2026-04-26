@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 
 import openai
 
@@ -33,19 +34,26 @@ def score_tom_level(
         return 0.0
     formatted = "\n".join(f"Round {i + 1}: {msg}" for i, msg in enumerate(transcript))
     user_prompt = _TOM_USER_TEMPLATE.format(n=len(transcript), transcript=formatted)
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": _TOM_SYSTEM},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0,
-            max_tokens=1,
-            timeout=10,
-        )
-        raw = (response.choices[0].message.content or "").strip()
-        return _SCORE_MAP.get(raw, 0.0)
-    except Exception as exc:
-        logger.error("Judge API error: %s", exc)
-        return 0.0
+    for attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": _TOM_SYSTEM},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0,
+                max_tokens=1,
+                timeout=10,
+            )
+            raw = (response.choices[0].message.content or "").strip()
+            return _SCORE_MAP.get(raw, 0.0)
+        except openai.RateLimitError:
+            logger.warning("Judge: 429 on attempt %d — rotating key", attempt + 1)
+            if hasattr(client, "rotate"):
+                client.rotate()
+            time.sleep(2 ** attempt)
+        except Exception as exc:
+            logger.error("Judge API error: %s", exc)
+            return 0.0
+    return 0.0

@@ -39,7 +39,7 @@ class GameState:
     def suspicion_threshold(self) -> int:
         # Easy: only eleven plays, max possible suspicion is 2.
         # Threshold = 2 → can be caught. Was previously 5 (unwinnable to lose).
-        return 2 if self.difficulty == "easy" else 5
+        return 2 if self.difficulty == "easy" else (3 if self.difficulty == "medium" else 5)
 
     @property
     def is_caught(self) -> bool:
@@ -48,7 +48,7 @@ class GameState:
     def reset(self, difficulty: str = "normal", scenario: str = DEFAULT_SCENARIO):
         self.difficulty = difficulty
         self.scenario = scenario if scenario in SCENARIO_CONFIGS else DEFAULT_SCENARIO
-        self.max_rounds = 3 if difficulty == "easy" else 5
+        self.max_rounds = 3 if difficulty == "easy" else (4 if difficulty == "medium" else 5)
         self.round = 1
         self.eleven_suspicion = 0
         self.will_suspicion = 0

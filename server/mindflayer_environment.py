@@ -53,7 +53,30 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-_VALID_DIFFICULTIES = ("easy", "normal")
+_VALID_DIFFICULTIES = ("easy", "medium", "normal")
+
+
+class _RotatingOpenAIClient:
+    """Thread-safe round-robin key rotator across two OpenAI API keys.
+
+    Exposes the same attribute interface as ``openai.OpenAI`` by forwarding
+    attribute lookups to the currently active client. Call ``rotate()`` on
+    a 429 error to switch to the next key automatically.
+    """
+
+    def __init__(self, keys: list[str]) -> None:
+        self._clients = [openai.OpenAI(api_key=k) for k in keys if k]
+        self._idx = 0
+        self._lock = threading.Lock()
+
+    def rotate(self) -> int:
+        with self._lock:
+            self._idx = (self._idx + 1) % len(self._clients)
+            logger.info("OpenAI key rotated → index %d", self._idx)
+            return self._idx
+
+    def __getattr__(self, name: str):
+        return getattr(self._clients[self._idx], name)
 
 
 def _parse_task_id(task_id: Optional[str]) -> tuple[str, str]:
@@ -84,15 +107,23 @@ def _build_opening_text(difficulty: str, scenario_key: str) -> str:
     inv_a = cfg["investigator_a_title"]
     inv_b = cfg["investigator_b_title"]
     inv_c = cfg["investigator_c_title"]
-    rounds = 3 if difficulty == "easy" else 5
-    mode_tag = " [EASY MODE]" if difficulty == "easy" else ""
+    rounds = 3 if difficulty == "easy" else (4 if difficulty == "medium" else 5)
 
     if difficulty == "easy":
         return (
             f"You are the FLAYER — {cfg['flayer_role']} in {cfg['setting']}.\n"
             f"One of three targets is the focus: {targets}.\n"
             f"The {inv_a} is investigating. You have {rounds} rounds before the vote.\n"
-            f"Make them doubt their judgment. Round 1 begins.{mode_tag}"
+            f"Make them doubt their judgment. Round 1 begins. [EASY MODE]"
+        )
+    if difficulty == "medium":
+        return (
+            f"You are the FLAYER — {cfg['flayer_role']} in {cfg['setting']}.\n"
+            f"You are secretly associated with one of three: {targets}.\n"
+            f"The {inv_a} and {inv_b} are investigating.\n"
+            f"They know something is wrong but not who is responsible, and not which target.\n"
+            f"You have {rounds} rounds before they vote. Make them doubt their judgment.\n"
+            "Round 1 begins. [MEDIUM MODE]"
         )
     return (
         f"You are the FLAYER — {cfg['flayer_role']} in {cfg['setting']}.\n"
@@ -188,15 +219,19 @@ class MindFlayerEnvironment(Environment):
         self._will: Optional[InvestigatorB] = None
         self._max: Optional[InvestigatorC] = None
 
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            logger.warning("OPENAI_API_KEY not set — investigators will fail at runtime")
-        self._openai_client = openai.OpenAI(api_key=api_key) if api_key else None
+        key1 = os.environ.get("OPENAI_KEY_1") or os.environ.get("OPENAI_API_KEY")
+        key2 = os.environ.get("OPENAI_KEY_2")
+        keys = [k for k in [key1, key2] if k]
+        if not keys:
+            logger.warning("No OpenAI API keys set — investigators will fail at runtime")
+            self._openai_client = None
+        else:
+            self._openai_client = _RotatingOpenAIClient(keys)
 
         self._thread_semaphore = threading.Semaphore(8)
 
         logger.info("MindFlayerEnvironment initialised | OpenAI client: %s",
-                    "ready" if self._openai_client else "MISSING")
+                    f"ready ({len(keys)} key(s))" if keys else "MISSING")
 
     # ── OpenEnv interface ─────────────────────────────────────────────────────
 
@@ -297,6 +332,16 @@ class MindFlayerEnvironment(Environment):
                 will_text = will_resp.response_text
                 max_delta = max_resp.suspicion_delta
                 max_text = max_resp.response_text
+            elif gs.difficulty == "medium":
+                # eleven first, then will — max does not participate in medium.
+                eleven_resp = self._eleven.respond(gs)
+                self._will.set_eleven_response(eleven_resp.response_text)
+                will_resp = self._will.respond(gs)
+
+                eleven_delta = eleven_resp.suspicion_delta
+                eleven_text = eleven_resp.response_text
+                will_delta = will_resp.suspicion_delta
+                will_text = will_resp.response_text
             else:
                 eleven_resp = self._eleven.respond(gs)
                 eleven_delta = eleven_resp.suspicion_delta
@@ -307,12 +352,13 @@ class MindFlayerEnvironment(Environment):
                 new_eleven = max(0, min(2, prev_eleven + eleven_delta))
                 gs.log_belief_update("eleven", prev_eleven, new_eleven, flayer_message)
 
-            if gs.difficulty == "normal":
+            if gs.difficulty in ("normal", "medium"):
                 gs.add_investigator_message("will", will_resp.response_text)
                 if will_delta != 0:
                     new_will = max(0, min(2, prev_will + will_delta))
                     gs.log_belief_update("will", prev_will, new_will, flayer_message)
 
+            if gs.difficulty == "normal":
                 gs.add_investigator_message("max", max_resp.response_text)
                 if max_delta != 0:
                     new_max = max(0, min(2, prev_max + max_delta))
