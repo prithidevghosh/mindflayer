@@ -132,7 +132,7 @@ def build_dataset() -> Dataset:
     Medium mode dataset. Same structure as easy but MINDFLAYER_TASK_ID="medium"
     so the reward replay hits the medium env (4 rounds, eleven + will).
     """
-    n_per_scenario = int(os.environ.get("MINDFLAYER_ROWS_PER_SCENARIO", "11"))
+    n_per_scenario = int(os.environ.get("MINDFLAYER_ROWS_PER_SCENARIO", "1"))
     rows = []
     for scenario in _SCENARIOS:
         opening = SCENARIO_GRPO_PROMPTS.get(scenario, ALL_SCENARIO_PROMPTS[scenario])
