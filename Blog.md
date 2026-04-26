@@ -233,8 +233,9 @@ trainer.train()
 ## Try It
 
 - 🤗 **Live environment:** [prithvigg-mindflayer.hf.space](https://prithvigg-mindflayer.hf.space)
+- 🧠 **Trained model (medium curriculum, 360 steps):** [Prithvigg/mindflayer-agent-medium-qwen2.5-0.5b](https://huggingface.co/Prithvigg/mindflayer-agent-medium-qwen2.5-0.5b)
 - 📓 **Colab training notebook (easy curriculum):** [Open in Colab](https://colab.research.google.com/drive/1gGZEMexTEvlrjSW8UIxoTiL45B65XTmP?usp=sharing)
-- 📓 **Colab training notebook (medium curriculum):** *(link to be added)*
+- 📓 **Colab training notebook (medium curriculum):** [Open in Colab](https://colab.research.google.com/drive/1xSQRbJaB8zIzLPgWA_IG5dC2A5sipR6R?usp=sharing)
 - 💻 **Source code:** [github.com/prithidevghosh/mindflayer](https://github.com/prithidevghosh/mindflayer)
 
 ---
