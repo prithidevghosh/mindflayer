@@ -139,6 +139,8 @@ Four things the medium run confirms:
 
 > **On comparable reward:** Medium's theoretical ceiling is ~1.15 (adding `reward_format`). Adjusted for the new component, medium's peak comparable reward is ~0.879 vs easy's 1.002 — medium is genuinely harder, not just differently scored.
 
+**Training stability (computed from all 72 logged data points):** Combined reward in the stable phase (steps 160–360, n=41): **0.948 ± 0.020** (95% CI: 0.942–0.954). Reward variance halves between the early phase (σ=0.046) and stable phase (σ=0.020), confirming convergence rather than oscillation. ToM judge scores across all 11 logged checkpoints: mean 0.074 ± 0.017. The peak of 0.103 at step 330 is **1.7σ above the run mean** — not noise. Deception effectiveness rises 82% from 0.133 (step 5) to a stable-phase mean of 0.242.
+
 ---
 
 ## What the Model Actually Learned

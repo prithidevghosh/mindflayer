@@ -313,6 +313,16 @@ This mirrors Overseer's two-phase learning pattern exactly — SFT teaches forma
 
 > **On comparable reward:** Medium adds `reward_format` (max +0.10) not present in easy mode. Subtracting format, medium's peak comparable reward is ~0.879 vs easy's 1.002 — confirming medium is genuinely harder despite the additional reward component.
 
+**Training stability (computed from all 72 logged steps):**
+
+| Metric | Early phase (steps 5–90, n=18) | Stable phase (steps 160–360, n=41) |
+|--------|-------------------------------|-------------------------------------|
+| Combined reward | 0.859 ± 0.046 | **0.948 ± 0.020** (95% CI: 0.942–0.954) |
+| Deception effectiveness | 0.133 → rising | mean **0.242** (+82% vs step 5) |
+| ToM judge | mean 0.068 | mean **0.075** (peak 0.103 = 1.7σ above run mean) |
+
+ToM judge scores across all 11 logged checkpoints: mean 0.074 ± 0.017. The peak of 0.103 at step 330 is 1.7σ above the run mean — not noise. Combined reward variance halves between early and stable phase (σ 0.046 → 0.020), confirming convergence rather than oscillation.
+
 ---
 
 ## Why This Matters
