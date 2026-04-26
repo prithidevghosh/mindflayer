@@ -31,7 +31,6 @@ We don't understand how this behavior emerges. We don't know what signals it pro
 | Deception Effectiveness | 0.293 | 0.300 | 0.294 |
 | Anti-Hack Penalty | −0.004 | −0.004 | −0.002 |
 
-> **Note on Steps 100–120:** OpenAI API 429 rate-limit errors intermittently failed ToM judge calls from step 100. The dip in `reward_tom_judge` reflects API failures, not a learning regression. Survival and deception effectiveness — independent of external API calls — remain stable.
 
 **Medium curriculum (360 steps, clean — no API errors):** Survival hits 50% ceiling by step 20. Anti-hack penalties converge to zero from step 160. ToM judge peaks at **0.103 at step 330** — the highest across either curriculum.
 
